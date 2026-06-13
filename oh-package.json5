@@ -1,0 +1,11 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "helloworld",
+  "version": "1.0.0",
+  "description": "HelloWorld",
+  "main": "",
+  "author": "",
+  "license": "",
+  "dependencies": {},
+  "devDependencies": {}
+}

@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "小Q - Hermes Agent 移动助手"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "小Q聊天入口"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "小Q"
+    }
+  ]
+}

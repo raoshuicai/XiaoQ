@@ -1,0 +1,21 @@
+# Build outputs
+entry/build/
+.hvigor/
+.idea/
+build/
+
+# Signing materials (DO NOT COMMIT)
+*.p12
+*.csr
+*.cer
+*.p7b
+*.pem
+cert/
+build-profile.json5
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+*.iml
