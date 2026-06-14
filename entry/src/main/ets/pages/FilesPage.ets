@@ -1,9 +1,12 @@
 import { router } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
+import { wifiManager } from '@kit.ConnectivityKit';
 import { FileApi, FileItem, FileListResult } from '../utils/FileApi.ets';
 
 const NAV_KEY_VAULT: string = 'vault';
-const PUBLIC_API: string = 'https://xiaoq.xiao-q.com';
+const HOME_WIFI_SSID: string = 'HUAWEI-404';
+const LOCAL_FILE_API: string = 'http://192.168.3.87:8866';
+const PUBLIC_FILE_API: string = 'https://xiaoq.xiao-q.com';
 
 interface NavItem {
   name: string;
@@ -25,16 +28,24 @@ struct FilesPage {
 
   aboutToAppear(): void {
     // 确定API地址
-    const apiUrl: string = this.detectFilesApiUrl();
-    this.fileApi.updateConfig(apiUrl, this.apiKey);
-
-    this.navStack = [{ name: '知识库', path: '', key: NAV_KEY_VAULT }];
-    this.loadDir('');
+    this.detectFilesApiUrl().then((apiUrl: string) => {
+      this.fileApi.updateConfig(apiUrl, this.apiKey);
+      this.navStack = [{ name: '知识库', path: '', key: NAV_KEY_VAULT }];
+      this.loadDir('');
+    });
   }
 
-  private detectFilesApiUrl(): string {
-    // 默认为公网地址
-    return PUBLIC_API;
+  private async detectFilesApiUrl(): Promise<string> {
+    // 检测WiFi SSID，家里走本地，外面走公网
+    try {
+      const linkedInfo: wifiManager.WifiLinkedInfo = await wifiManager.getLinkedInfo();
+      if (linkedInfo.ssid === HOME_WIFI_SSID) {
+        return LOCAL_FILE_API;
+      }
+    } catch (error) {
+      // 获取失败就走公网
+    }
+    return PUBLIC_FILE_API;
   }
 
   private async loadDir(dirPath: string): Promise<void> {

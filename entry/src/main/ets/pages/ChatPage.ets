@@ -1,7 +1,9 @@
 import { promptAction } from '@kit.ArkUI';
 import { router } from '@kit.ArkUI';
 import { wifiManager } from '@kit.ConnectivityKit';
+import { common } from '@kit.AbilityKit';
 import { HermesApi, ChatMessage } from '../utils/HermesApi.ets';
+import { saveApiKey, loadApiKey } from '../utils/PreferencesHelper.ets';
 
 // 家里WiFi配置
 const HOME_WIFI_SSID: string = 'HUAWEI-404';
@@ -9,7 +11,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8642';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '1.1.0';
+const APP_VERSION: string = '1.3.0';
 
 @Entry
 @Component
@@ -43,19 +45,26 @@ struct ChatPage {
   }
 
   aboutToAppear(): void {
-    this.tempApiKey = this.apiKey;
-
-    // 自动检测网络并配置（async但不await，避免阻塞启动）
-    this.detectApiUrl().then((detectedUrl: string) => {
-      this.hermesApi.updateConfig(detectedUrl, this.apiKey);
-
-      const welcome: ChatMessage = { role: 'assistant', content: '' };
-      if (this.apiKey !== '') {
-        welcome.content = '你好！我是小Q v' + APP_VERSION + '，当前网络：' + this.networkMode + '。有什么可以帮你的？';
-      } else {
-        welcome.content = '欢迎使用小Q！请先点击右上角 ⚙️ 按钮配置API密钥。';
+    // 从Preferences加载持久化的API Key
+    const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
+    loadApiKey(ctx).then((savedKey: string) => {
+      if (savedKey !== '') {
+        this.apiKey = savedKey;
       }
-      this.messageList.push(welcome);
+      this.tempApiKey = this.apiKey;
+
+      // 自动检测网络并配置（async但不await，避免阻塞启动）
+      this.detectApiUrl().then((detectedUrl: string) => {
+        this.hermesApi.updateConfig(detectedUrl, this.apiKey);
+
+        const welcome: ChatMessage = { role: 'assistant', content: '' };
+        if (this.apiKey !== '') {
+          welcome.content = '你好！我是小Q v' + APP_VERSION + '，当前网络：' + this.networkMode + '。有什么可以帮你的？';
+        } else {
+          welcome.content = '欢迎使用小Q！请先点击右上角 ⚙️ 按钮配置API密钥。';
+        }
+        this.messageList.push(welcome);
+      });
     });
   }
 
@@ -65,6 +74,9 @@ struct ChatPage {
 
   private async saveSettings(): Promise<void> {
     this.apiKey = this.tempApiKey;
+    // 保存到Preferences持久化
+    const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
+    await saveApiKey(ctx, this.apiKey);
     // 保存时重新检测一次网络
     const detectedUrl: string = await this.detectApiUrl();
     this.hermesApi.updateConfig(detectedUrl, this.apiKey);

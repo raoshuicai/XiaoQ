@@ -1,9 +1,11 @@
 import { router } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
+import { wifiManager } from '@kit.ConnectivityKit';
 import { FileApi } from '../utils/FileApi.ets';
 
-const LOCAL_API: string = 'http://192.168.3.87:8089';
+const LOCAL_API: string = 'http://192.168.3.87:8866';
 const PUBLIC_API: string = 'https://xiaoq.xiao-q.com';
+const HOME_WIFI_SSID: string = 'HUAWEI-404';
 
 @Entry
 @Component
@@ -16,6 +18,18 @@ struct FileViewPage {
   private fileApi: FileApi = new FileApi('', '');
   private filePath: string = '';
 
+  private async detectApiUrl(): Promise<string> {
+    try {
+      const linkedInfo: wifiManager.WifiLinkedInfo = await wifiManager.getLinkedInfo();
+      if (linkedInfo.ssid === HOME_WIFI_SSID) {
+        return LOCAL_API;
+      }
+    } catch (error) {
+      // 获取WiFi信息失败，走公网
+    }
+    return PUBLIC_API;
+  }
+
   aboutToAppear(): void {
     const params: Record<string, Object> = router.getParams() as Record<string, Object>;
     if (params !== undefined) {
@@ -25,20 +39,21 @@ struct FileViewPage {
 
     this.isMarkdown = this.fileName.toLowerCase().endsWith('.md');
 
-    const savedKey: string = AppStorage.get<string>('apiKey') as string;
-    const apiUrl: string = PUBLIC_API;
-    if (savedKey !== undefined) {
-      this.fileApi.updateConfig(apiUrl, savedKey);
-    }
-
-    this.loadContent();
+    this.detectApiUrl().then((apiUrl: string) => {
+      const savedKey: string = AppStorage.get<string>('apiKey') as string;
+      if (savedKey !== undefined) {
+        this.fileApi.updateConfig(apiUrl, savedKey);
+      }
+      this.loadContent();
+    });
   }
 
   private async loadContent(): Promise<void> {
     this.isLoading = true;
     try {
+      const apiUrl: string = await this.detectApiUrl();
       const savedKey: string = AppStorage.get<string>('apiKey') as string;
-      this.fileApi.updateConfig(PUBLIC_API, savedKey ?? '');
+      this.fileApi.updateConfig(apiUrl, savedKey ?? '');
       const content: string = await this.fileApi.readFile(this.filePath);
       this.fileContent = content;
     } catch (error) {
