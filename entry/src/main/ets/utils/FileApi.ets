@@ -39,7 +39,15 @@ export class FileApi {
     try {
       const config: rcp.SessionConfiguration = {
         baseAddress: this.baseUrl.replace(/\/+$/, ''),
-        timeout: 120000
+        requestConfiguration: {
+          transfer: {
+            autoRedirect: true,
+            timeout: {
+              connectMs: 15000,
+              transferMs: 120000
+            }
+          }
+        }
       };
       this.session = rcp.createSession(config);
     } catch (error) {
