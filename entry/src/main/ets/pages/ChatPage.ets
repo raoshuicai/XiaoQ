@@ -4,6 +4,7 @@ import { wifiManager } from '@kit.ConnectivityKit';
 import { common } from '@kit.AbilityKit';
 import { HermesApi, ChatMessage } from '../utils/HermesApi.ets';
 import { saveApiKey, loadApiKey } from '../utils/PreferencesHelper.ets';
+import { WebSocketClient, WsMessage } from '../utils/WebSocketClient.ets';
 
 // 家里WiFi配置
 const HOME_WIFI_SSID: string = 'HUAWEI-404';
@@ -11,7 +12,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8642';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '1.4.0';
+const APP_VERSION: string = '1.5.0';
 
 @Entry
 @Component
@@ -23,8 +24,10 @@ struct ChatPage {
   @StorageLink('apiKey') apiKey: string = '';
   @State tempApiKey: string = '';
   @State networkMode: string = '检测中...';
+  @State showApproveDialog: boolean = false;
 
   private hermesApi: HermesApi = new HermesApi('', '');
+  private wsClient: WebSocketClient = new WebSocketClient('harmony-' + Date.now().toString());
 
   private showToast(message: string): void {
     promptAction.showToast({ message: message });
@@ -32,6 +35,66 @@ struct ChatPage {
 
   private navigateToFiles(): void {
     router.pushUrl({ url: 'pages/FilesPage' });
+  }
+
+  private setupWebSocket(baseUrl: string): void {
+    this.wsClient.setCallbacks(
+      // onMessage
+      (msg: WsMessage) => {
+        if (msg.type === 'approve_request') {
+          this.handleApproveRequest(msg);
+        } else if (msg.type === 'notification') {
+          this.showToast(msg.body as string);
+        }
+      },
+      // onConnect
+      () => {
+        console.info('WS connected');
+      },
+      // onDisconnect
+      () => {
+        console.info('WS disconnected');
+      }
+    );
+    // 连接WebSocket（WiFi走ws://，5G走wss://）
+    const wsBase: string = baseUrl.startsWith('https') ? baseUrl.replace('https', 'wss') : baseUrl.replace('http', 'ws');
+    this.wsClient.connect(wsBase);
+  }
+
+  private handleApproveRequest(msg: WsMessage): void {
+    // 显示授权卡
+    this.showApproveDialog = true;
+    const reqId: string = msg.id as string;
+    const reqTitle: string = msg.title as string;
+    const reqDesc: string = msg.description as string;
+    const reqDetails: Object[] = (msg.details as Object[]) ?? [];
+    const reqRequester: string = msg.requester as string;
+
+    // 发送授权回复
+    const respond = (approved: boolean): void => {
+      const resp: WsMessage = {
+        type: 'approve_response',
+        id: reqId,
+        approved: approved,
+        timestamp: Date.now()
+      };
+      this.wsClient.send(resp);
+      this.showApproveDialog = false;
+      const result: string = approved ? '✅ 已授权' : '❌ 已拒绝';
+      const replyMsg: ChatMessage = { role: 'assistant', content: result };
+      this.messageList.push(replyMsg);
+    };
+
+    promptAction.showDialog({
+      title: '🔐 ' + reqTitle,
+      message: reqDesc + '\n\n' + reqDetails.join('\n'),
+      buttons: [
+        { text: '拒绝', color: '#FF4444' },
+        { text: '同意', color: '#5B5BD6' }
+      ]
+    }).then((result) => {
+      respond(result.index === 1); // index 0=拒绝, 1=同意
+    });
   }
 
   // 检测当前WiFi，返回应该使用的API地址
@@ -65,6 +128,9 @@ struct ChatPage {
       this.detectApiUrl().then((detectedUrl: string) => {
         this.hermesApi.updateConfig(detectedUrl, this.apiKey);
 
+        // 建立WebSocket长连接
+        this.setupWebSocket(detectedUrl);
+
         const welcome: ChatMessage = { role: 'assistant', content: '' };
         if (this.apiKey !== '') {
           welcome.content = '你好！我是小Q v' + APP_VERSION + '，当前网络：' + this.networkMode + '。有什么可以帮你的？';
@@ -78,6 +144,7 @@ struct ChatPage {
 
   aboutToDisappear(): void {
     this.hermesApi.destroy();
+    this.wsClient.close();
   }
 
   private async saveSettings(): Promise<void> {
@@ -88,6 +155,9 @@ struct ChatPage {
     // 保存时重新检测一次网络
     const detectedUrl: string = await this.detectApiUrl();
     this.hermesApi.updateConfig(detectedUrl, this.apiKey);
+    // 网络变化时重连WebSocket
+    this.wsClient.close();
+    this.setupWebSocket(detectedUrl);
     this.showSettings = false;
 
     if (this.apiKey !== '') {
