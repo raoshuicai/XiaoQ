@@ -25,3 +25,8 @@ agconnect-services.json
 agc-apiclient-*.json
 entry/agconnect-services.json
 entry/agc-apiclient-*.json
+*.json
+!oh-package.json5
+!hvigor-config.json5
+!build-profile.json5
+!hvigorfile.ts
