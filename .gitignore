@@ -19,3 +19,9 @@ Thumbs.db
 
 # IDE
 *.iml
+
+# AGC credentials (sensitive)
+agconnect-services.json
+agc-apiclient-*.json
+entry/agconnect-services.json
+entry/agc-apiclient-*.json
