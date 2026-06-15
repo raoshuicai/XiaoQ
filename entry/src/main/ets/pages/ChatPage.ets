@@ -11,7 +11,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8642';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '1.3.0';
+const APP_VERSION: string = '1.4.0';
 
 @Entry
 @Component
@@ -25,6 +25,14 @@ struct ChatPage {
   @State networkMode: string = '检测中...';
 
   private hermesApi: HermesApi = new HermesApi('', '');
+
+  private showToast(message: string): void {
+    promptAction.showToast({ message: message });
+  }
+
+  private navigateToFiles(): void {
+    router.pushUrl({ url: 'pages/FilesPage' });
+  }
 
   // 检测当前WiFi，返回应该使用的API地址
   private async detectApiUrl(): Promise<string> {
@@ -95,7 +103,7 @@ struct ChatPage {
     }
 
     if (this.apiKey === '') {
-      promptAction.showToast({ message: '请先配置API密钥', duration: 2000 });
+      this.showToast('请先配置API密钥');
       this.showSettings = true;
       return;
     }
@@ -155,7 +163,7 @@ struct ChatPage {
         .borderRadius(22)
         .margin({ right: 8 })
         .onClick(() => {
-          router.pushUrl({ url: 'pages/FilesPage' });
+          this.navigateToFiles();
         })
         Button() {
           Text('⚙️')

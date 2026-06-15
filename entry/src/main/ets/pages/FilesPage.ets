@@ -53,7 +53,7 @@ struct FilesPage {
 
     // 先检查API密钥是否已配置
     if (this.apiKey === '') {
-      promptAction.showToast({ message: '请先在聊天页面 ⚙️ 中配置API密钥', duration: 3000 });
+      this.showToast('请先在聊天页面 ⚙️ 中配置API密钥');
       this.isLoading = false;
       this.currentItems = [];
       return;
@@ -76,11 +76,15 @@ struct FilesPage {
       if (error instanceof Error) {
         msg = (error as Error).message;
       }
-      promptAction.showToast({ message: msg, duration: 2000 });
+      this.showToast(msg);
       this.currentItems = [];
     } finally {
       this.isLoading = false;
     }
+  }
+
+  private showToast(message: string): void {
+    promptAction.showToast({ message: message });
   }
 
   private enterDir(item: FileItem): void {

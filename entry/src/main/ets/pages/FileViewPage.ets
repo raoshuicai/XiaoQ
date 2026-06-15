@@ -62,10 +62,14 @@ struct FileViewPage {
         msg = (error as Error).message;
       }
       this.fileContent = '❌ ' + msg;
-      promptAction.showToast({ message: msg, duration: 2000 });
+      this.showToast(msg);
     } finally {
       this.isLoading = false;
     }
+  }
+
+  private showToast(message: string): void {
+    promptAction.showToast({ message: message });
   }
 
   build() {

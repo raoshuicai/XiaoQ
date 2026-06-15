@@ -10,19 +10,33 @@ async function getPreferences(context: common.Context): Promise<preferences.Pref
   if (preferencesInstance !== null) {
     return preferencesInstance;
   }
-  preferencesInstance = await preferences.getPreferences(context, STORE_NAME);
-  return preferencesInstance;
+  try {
+    preferencesInstance = await preferences.getPreferences(context, STORE_NAME);
+    return preferencesInstance;
+  } catch (error) {
+    console.error('getPreferences failed: ' + error);
+    throw new Error('getPreferences failed');
+  }
 }
 
 export async function saveApiKey(context: common.Context, apiKey: string): Promise<void> {
-  const pref = await getPreferences(context);
-  await pref.put(KEY_API_KEY, apiKey);
-  await pref.flush();
+  try {
+    const pref: preferences.Preferences = await getPreferences(context);
+    await pref.put(KEY_API_KEY, apiKey);
+    await pref.flush();
+  } catch (error) {
+    console.error('saveApiKey failed: ' + error);
+  }
 }
 
 export async function loadApiKey(context: common.Context): Promise<string> {
-  const pref = await getPreferences(context);
-  const valueObj: preferences.ValueType = await pref.get(KEY_API_KEY, '');
-  const value: string = valueObj as string;
-  return value;
+  try {
+    const pref: preferences.Preferences = await getPreferences(context);
+    const valueObj: preferences.ValueType = await pref.get(KEY_API_KEY, '');
+    const value: string = valueObj as string;
+    return value;
+  } catch (error) {
+    console.error('loadApiKey failed: ' + error);
+    return '';
+  }
 }
