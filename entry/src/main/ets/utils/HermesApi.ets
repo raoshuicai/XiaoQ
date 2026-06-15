@@ -34,7 +34,8 @@ export class HermesApi {
   private createSession(): void {
     try {
       const config: rcp.SessionConfiguration = {
-        baseAddress: this.baseUrl.replace(/\/+$/, '')
+        baseAddress: this.baseUrl.replace(/\/+$/, ''),
+        timeout: 120000
       };
       this.session = rcp.createSession(config);
     } catch (error) {
