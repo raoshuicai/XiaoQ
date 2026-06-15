@@ -6,13 +6,19 @@ import { HermesApi, ChatMessage } from '../utils/HermesApi.ets';
 import { saveApiKey, loadApiKey } from '../utils/PreferencesHelper.ets';
 import { WebSocketClient, WsMessage } from '../utils/WebSocketClient.ets';
 
+// 流式聊天用的消息记录类型
+interface ChatRecord {
+  role: string;
+  content: string;
+}
+
 // 家里WiFi配置
 const HOME_WIFI_SSID: string = 'HUAWEI-404';
-const LOCAL_API_URL: string = 'http://192.168.3.87:8642';
+const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '1.6.0';
+const APP_VERSION: string = '1.8.0';
 
 @Entry
 @Component
@@ -20,6 +26,8 @@ struct ChatPage {
   @State messageList: ChatMessage[] = [];
   @State inputText: string = '';
   @State isLoading: boolean = false;
+  @State isStreaming: boolean = false;
+  @State streamContent: string = '';
   @State showSettings: boolean = false;
   @StorageLink('apiKey') apiKey: string = '';
   @State tempApiKey: string = '';
@@ -44,7 +52,36 @@ struct ChatPage {
         if (msg.type === 'approve_request') {
           this.handleApproveRequest(msg);
         } else if (msg.type === 'notification') {
+          // 显示Toast同时，也插入到聊天框作为消息记录
           this.showToast(msg.body as string);
+          const notifyMsg: ChatMessage = {
+            role: 'assistant',
+            content: '📬 ' + (msg.title !== undefined ? msg.title + '：' : '') + (msg.body as string)
+          };
+          this.messageList.push(notifyMsg);
+        } else if (msg.type === 'chat_token' && msg.content !== undefined) {
+          // 流式回复：追加内容到当前流消息
+          this.streamContent += msg.content;
+          this.streamContent = this.streamContent; // 触发 @State 更新
+        } else if (msg.type === 'chat_done') {
+          // 流式回复完成：将流消息添加到历史记录
+          if (this.streamContent.length > 0) {
+            const doneMsg: ChatMessage = { role: 'assistant', content: this.streamContent };
+            this.messageList.push(doneMsg);
+          }
+          this.streamContent = '';
+          this.isStreaming = false;
+          this.isLoading = false;
+        } else if (msg.type === 'chat_error') {
+          this.isStreaming = false;
+          this.isLoading = false;
+          const errMsg: string = (msg.message !== undefined) ? msg.message : '流式回复失败';
+          const errChatMsg: ChatMessage = {
+            role: 'assistant',
+            content: '❌ 出错了：' + errMsg + '\n\n当前网络：' + this.networkMode
+          };
+          this.messageList.push(errChatMsg);
+          this.streamContent = '';
         }
       },
       // onConnect
@@ -54,6 +91,17 @@ struct ChatPage {
       // onDisconnect
       () => {
         console.info('WS disconnected');
+        // 如果流式回复进行中断线，触发fallback
+        if (this.isStreaming) {
+          this.isStreaming = false;
+          this.isLoading = false;
+          const errMsg: ChatMessage = {
+            role: 'assistant',
+            content: '❌ 网络连接中断，回复未完成。当前网络：' + this.networkMode
+          };
+          this.messageList.push(errMsg);
+          this.streamContent = '';
+        }
       }
     );
     // 连接WebSocket（WiFi走ws://，5G走wss://）
@@ -166,7 +214,7 @@ struct ChatPage {
     }
   }
 
-  private async sendMessage(): Promise<void> {
+  private sendMessage(): void {
     const text: string = this.inputText.trim();
     if (text === '' || this.isLoading) {
       return;
@@ -178,40 +226,29 @@ struct ChatPage {
       return;
     }
 
-    // 每次发送前重新检测网络（防止WiFi切换了）
-    const currentUrl: string = await this.detectApiUrl();
-    this.hermesApi.updateConfig(currentUrl, this.apiKey);
+    // 先构建历史消息（不含当前未完成的流消息）
+    const history: ChatRecord[] = [];
+    for (let i: number = 0; i < this.messageList.length; i++) {
+      const m: ChatMessage = this.messageList[i];
+      history.push({ role: m.role, content: m.content });
+    }
 
+    // 添加用户消息到界面
     const userMsg: ChatMessage = { role: 'user', content: text };
     this.messageList.push(userMsg);
+    history.push({ role: 'user', content: text });
+
     this.inputText = '';
     this.isLoading = true;
+    this.isStreaming = true;
+    this.streamContent = '';
 
-    try {
-      const history: ChatMessage[] = [];
-      for (let i: number = 0; i < this.messageList.length; i++) {
-        history.push({
-          role: this.messageList[i].role,
-          content: this.messageList[i].content
-        });
-      }
-
-      const reply: string = await this.hermesApi.sendMessage(history);
-      const replyMsg: ChatMessage = { role: 'assistant', content: reply };
-      this.messageList.push(replyMsg);
-    } catch (error) {
-      let errorMsg: string = '请求失败';
-      if (error instanceof Error) {
-        errorMsg = (error as Error).message;
-      }
-      const errMsg: ChatMessage = {
-        role: 'assistant',
-        content: '❌ 出错了：' + errorMsg + '\n\n当前网络：' + this.networkMode
-      };
-      this.messageList.push(errMsg);
-    } finally {
-      this.isLoading = false;
-    }
+    // 通过WebSocket发送流式聊天请求
+    this.wsClient.send({
+      type: 'chat',
+      messages: history,
+      session_id: this.wsClient.clientId
+    });
   }
 
   build() {
@@ -259,10 +296,20 @@ struct ChatPage {
             this.MessageBubble(message)
           }
         }, (message: ChatMessage, index: number) => index.toString())
+
+        // 流式消息气泡（正在回复时显示，否则隐藏）
+        ListItem() {
+          this.StreamingBubble()
+        }
+        .visibility(this.isStreaming ? Visibility.Visible : Visibility.None)
       }
       .width('100%')
       .layoutWeight(1)
       .padding({ left: 12, right: 12, top: 8 })
+      .scrollBar(BarState.Auto)
+      .edgeEffect(EdgeEffect.Spring)
+      // 新消息自动滚到底部
+      .onClick(() => {})
 
       // 输入区域
       Row() {
@@ -322,8 +369,10 @@ struct ChatPage {
       Column() {
         if (message.role === 'assistant') {
           Row() {
-            Text('🤖')
-              .fontSize(16)
+            Image($r('app.media.bot_avatar'))
+              .width(20)
+              .height(20)
+              .borderRadius(10)
               .margin({ right: 6 })
             Text('小Q')
               .fontSize(12)
@@ -351,6 +400,54 @@ struct ChatPage {
       if (message.role === 'assistant') {
         Blank()
       }
+    }
+    .width('100%')
+    .margin({ top: 8, bottom: 4 })
+    .justifyContent(FlexAlign.SpaceBetween)
+    .alignItems(VerticalAlign.Top)
+  }
+
+  @Builder
+  StreamingBubble() {
+    Row() {
+      Blank()
+
+      Column() {
+        Row() {
+          Text('🤖')
+            .fontSize(16)
+            .margin({ right: 6 })
+          Text('小Q')
+            .fontSize(12)
+            .fontColor('#5B5BD6')
+            .fontWeight(FontWeight.Medium)
+        }
+        .margin({ bottom: 4 })
+
+        // 流式内容：打字机效果
+        Text(this.streamContent)
+          .fontSize(15)
+          .fontColor('#1A1A2E')
+          .lineHeight(22)
+
+        // 闪烁光标指示正在回复
+        if (this.streamContent.length === 0) {
+          Row() {
+            LoadingProgress()
+              .width(16)
+              .height(16)
+              .color('#5B5BD6')
+          }
+          .width('100%')
+          .margin({ top: 4 })
+        }
+      }
+      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+      .backgroundColor('#FFFFFF')
+      .borderRadius(16)
+      .shadow({ radius: 4, color: 'rgba(0,0,0,0.06)' })
+      .constraintSize({ maxWidth: '80%' })
+      .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
     .margin({ top: 8, bottom: 4 })

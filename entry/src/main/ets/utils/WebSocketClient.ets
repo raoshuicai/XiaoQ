@@ -5,6 +5,7 @@ const WS_RECONNECT_DELAY: number = 5000; // 断线重连延时
 
 export interface WsMessage {
   type: string;
+  // 推送/授权
   id?: string;
   title?: string;
   description?: string;
@@ -13,6 +14,14 @@ export interface WsMessage {
   body?: string;
   approved?: boolean;
   timestamp?: number;
+  // 流式聊天
+  content?: string;       // chat_token 内容
+  name?: string;          // 工具名
+  arguments?: string;     // 工具参数
+  message?: string;       // chat_error 信息
+  // 聊天请求
+  messages?: Object[];    // 消息历史
+  session_id?: string;    // 会话ID
 }
 
 export type WsCallback = (msg: WsMessage) => void;
@@ -20,7 +29,7 @@ export type WsCallback = (msg: WsMessage) => void;
 export class WebSocketClient {
   private ws: webSocket.WebSocket | null = null;
   private url: string = '';
-  private clientId: string = '';
+  public clientId: string = '';
   private connected: boolean = false;
   private pingTimer: number | undefined = undefined;
   private reconnectTimer: number | undefined = undefined;
