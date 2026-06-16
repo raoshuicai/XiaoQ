@@ -3,6 +3,8 @@ import { common } from '@kit.AbilityKit';
 
 const STORE_NAME: string = 'xiaoq_preferences';
 const KEY_API_KEY: string = 'api_key';
+const KEY_MESSAGES: string = 'chat_messages';
+const MAX_SAVED_MESSAGES: number = 200;
 
 let preferencesInstance: preferences.Preferences | null = null;
 
@@ -38,5 +40,38 @@ export async function loadApiKey(context: common.Context): Promise<string> {
   } catch (error) {
     console.error('loadApiKey failed: ' + error);
     return '';
+  }
+}
+
+// === 聊天消息持久化 ===
+
+export interface StoredMessage {
+  role: string;
+  content: string;
+}
+
+export async function saveMessages(context: common.Context, messages: StoredMessage[]): Promise<void> {
+  try {
+    // 只保留最近 MAX_SAVED_MESSAGES 条
+    const toSave: StoredMessage[] = messages.slice(-MAX_SAVED_MESSAGES);
+    const json: string = JSON.stringify(toSave);
+    const pref: preferences.Preferences = await getPreferences(context);
+    await pref.put(KEY_MESSAGES, json);
+    await pref.flush();
+  } catch (error) {
+    console.error('saveMessages failed: ' + error);
+  }
+}
+
+export async function loadMessages(context: common.Context): Promise<StoredMessage[]> {
+  try {
+    const pref: preferences.Preferences = await getPreferences(context);
+    const valueObj: preferences.ValueType = await pref.get(KEY_MESSAGES, '[]');
+    const json: string = valueObj as string;
+    const result: StoredMessage[] = JSON.parse(json) as StoredMessage[];
+    return result;
+  } catch (error) {
+    console.error('loadMessages failed: ' + error);
+    return [];
   }
 }

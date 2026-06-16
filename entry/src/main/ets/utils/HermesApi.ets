@@ -127,4 +127,45 @@ export class HermesApi {
       throw new HermesError('未知网络错误');
     }
   }
+
+  /**
+   * 对 Hermes 运行授权请求做出响应
+   */
+  public async approveRun(runId: string, approval: string): Promise<void> {
+    if (this.baseUrl === '' || this.apiKey === '') {
+      throw new HermesError('未配置API地址或密钥');
+    }
+    if (this.session === null) {
+      this.createSession();
+      if (this.session === null) {
+        throw new HermesError('创建网络连接失败');
+      }
+    }
+
+    try {
+      const requestHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + this.apiKey
+      };
+      const bodyObj: Record<string, Object> = {
+        'approval': approval
+      };
+      const request: rcp.Request = new rcp.Request(
+        '/v1/runs/' + encodeURIComponent(runId) + '/approval',
+        'POST',
+        requestHeaders,
+        bodyObj
+      );
+      const response: rcp.Response = await this.session.fetch(request);
+      if (response.statusCode !== 200) {
+        console.error('approveRun failed: HTTP ' + response.statusCode);
+      }
+    } catch (error) {
+      console.error('approveRun error: ' + error);
+      if (error instanceof HermesError) {
+        throw error;
+      }
+      throw new HermesError(String(error));
+    }
+  }
 }

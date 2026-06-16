@@ -1,7 +1,7 @@
 import { webSocket } from '@kit.NetworkKit';
 
-const WS_PING_INTERVAL: number = 30000;  // 30秒心跳
-const WS_RECONNECT_DELAY: number = 5000; // 断线重连延时
+const WS_PING_INTERVAL: number = 15000;  // 15秒心跳（原30秒，隧道不稳定需更快检测断线）
+const WS_RECONNECT_DELAY: number = 2000; // 断线重连延时2秒（原5秒）
 
 export interface WsMessage {
   type: string;
@@ -22,6 +22,11 @@ export interface WsMessage {
   // 聊天请求
   messages?: Object[];    // 消息历史
   session_id?: string;    // 会话ID
+  // 授权卡片（新格式）
+  run_id?: string;        // Hermes 运行ID
+  command?: string;       // 需要授权的命令
+  pattern_keys?: string[]; // 匹配的模式
+  choices?: string[];     // 可选操作列表
 }
 
 export type WsCallback = (msg: WsMessage) => void;
@@ -99,6 +104,7 @@ export class WebSocketClient {
       this.ws.on('error', () => {
         this.connected = false;
         this.stopPing();
+        this.scheduleReconnect();
       });
 
       this.ws.connect(fullUrl, (err: Error) => {

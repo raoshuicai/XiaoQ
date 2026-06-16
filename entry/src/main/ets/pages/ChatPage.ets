@@ -3,7 +3,8 @@ import { router } from '@kit.ArkUI';
 import { wifiManager } from '@kit.ConnectivityKit';
 import { common } from '@kit.AbilityKit';
 import { HermesApi, ChatMessage } from '../utils/HermesApi.ets';
-import { saveApiKey, loadApiKey } from '../utils/PreferencesHelper.ets';
+import { saveApiKey, loadApiKey, saveMessages, loadMessages } from '../utils/PreferencesHelper.ets';
+import { StoredMessage } from '../utils/PreferencesHelper.ets';
 import { WebSocketClient, WsMessage } from '../utils/WebSocketClient.ets';
 
 // 流式聊天用的消息记录类型
@@ -18,7 +19,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '1.8.0';
+const APP_VERSION: string = '1.9.4';
 
 @Entry
 @Component
@@ -32,13 +33,30 @@ struct ChatPage {
   @StorageLink('apiKey') apiKey: string = '';
   @State tempApiKey: string = '';
   @State networkMode: string = '检测中...';
-  @State showApproveDialog: boolean = false;
+  @State showDialog: boolean = false;
+  @State approveRunId: string = '';
+  @State approveCommand: string = '';
+  @State approvePatterns: string[] = [];
+  @State approveInProgress: boolean = false;
 
   private hermesApi: HermesApi = new HermesApi('', '');
   private wsClient: WebSocketClient = new WebSocketClient('harmony-' + Date.now().toString());
+  private saveTimer: number | undefined = undefined;
+  private pageVisible: boolean = true;
 
   private showToast(message: string): void {
     promptAction.showToast({ message: message });
+  }
+
+  private scheduleSaveMessages(): void {
+    if (this.saveTimer !== undefined) {
+      clearTimeout(this.saveTimer);
+    }
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = undefined;
+      const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
+      saveMessages(ctx, this.messageList);
+    }, 500);
   }
 
   private navigateToFiles(): void {
@@ -59,15 +77,22 @@ struct ChatPage {
             content: '📬 ' + (msg.title !== undefined ? msg.title + '：' : '') + (msg.body as string)
           };
           this.messageList.push(notifyMsg);
+          this.scheduleSaveMessages();
         } else if (msg.type === 'chat_token' && msg.content !== undefined) {
-          // 流式回复：追加内容到当前流消息
-          this.streamContent += msg.content;
-          this.streamContent = this.streamContent; // 触发 @State 更新
+          // 流式回复：过滤"思考中。。"占位符，防止泄漏到最终答复
+          const token: string = msg.content;
+          if (this.streamContent.length === 0 && (token === '思考中。。' || token.startsWith('思考中。。'))) {
+            // 首个token如果是占位符文字，跳过
+          } else {
+            this.streamContent += token;
+            this.streamContent = this.streamContent; // 触发 @State 更新
+          }
         } else if (msg.type === 'chat_done') {
           // 流式回复完成：将流消息添加到历史记录
           if (this.streamContent.length > 0) {
             const doneMsg: ChatMessage = { role: 'assistant', content: this.streamContent };
             this.messageList.push(doneMsg);
+            this.scheduleSaveMessages();
           }
           this.streamContent = '';
           this.isStreaming = false;
@@ -81,6 +106,7 @@ struct ChatPage {
             content: '❌ 出错了：' + errMsg + '\n\n当前网络：' + this.networkMode
           };
           this.messageList.push(errChatMsg);
+          this.scheduleSaveMessages();
           this.streamContent = '';
         }
       },
@@ -100,6 +126,7 @@ struct ChatPage {
             content: '❌ 网络连接中断，回复未完成。当前网络：' + this.networkMode
           };
           this.messageList.push(errMsg);
+          this.scheduleSaveMessages();
           this.streamContent = '';
         }
       }
@@ -110,39 +137,80 @@ struct ChatPage {
   }
 
   private handleApproveRequest(msg: WsMessage): void {
-    // 显示授权卡
-    this.showApproveDialog = true;
-    const reqId: string = msg.id as string;
-    const reqTitle: string = msg.title as string;
-    const reqDesc: string = msg.description as string;
-    const reqDetails: Object[] = (msg.details as Object[]) ?? [];
-    const reqRequester: string = msg.requester as string;
+    // 检测新旧格式：新格式有 run_id，旧格式有 id
+    if (msg.run_id !== undefined) {
+      // 新格式：通过 Hermes API 授权
+      this.approveRunId = msg.run_id as string;
+      this.approveCommand = msg.command as string ?? '';
+      this.approvePatterns = (msg.pattern_keys as string[]) ?? [];
+      this.showSettings = false;
+      this.showDialog = true;
+      this.approveInProgress = false;
+    } else {
+      // 旧格式：通过 WebSocket 回复
+      const reqId: string = msg.id as string;
+      const reqTitle: string = msg.title as string;
+      const reqDesc: string = msg.description as string;
+      const reqDetails: Object[] = (msg.details as Object[]) ?? [];
+      const reqRequester: string = msg.requester as string;
 
-    // 发送授权回复
-    const respond = (approved: boolean): void => {
-      const resp: WsMessage = {
-        type: 'approve_response',
-        id: reqId,
-        approved: approved,
-        timestamp: Date.now()
+      // 旧格式用 promptAction 弹窗
+      const respond = (approved: boolean): void => {
+        const resp: WsMessage = {
+          type: 'approve_response',
+          id: reqId,
+          approved: approved,
+          timestamp: Date.now()
+        };
+        this.wsClient.send(resp);
+        this.showDialog = false;
+        const result: string = approved ? '✅ 已授权' : '❌ 已拒绝';
+        const replyMsg: ChatMessage = { role: 'assistant', content: result };
+        this.messageList.push(replyMsg);
+        this.scheduleSaveMessages();
       };
-      this.wsClient.send(resp);
-      this.showApproveDialog = false;
-      const result: string = approved ? '✅ 已授权' : '❌ 已拒绝';
-      const replyMsg: ChatMessage = { role: 'assistant', content: result };
-      this.messageList.push(replyMsg);
-    };
 
-    promptAction.showDialog({
-      title: '🔐 ' + reqTitle,
-      message: reqDesc + '\n\n' + reqDetails.join('\n'),
-      buttons: [
-        { text: '拒绝', color: '#FF4444' },
-        { text: '同意', color: '#5B5BD6' }
-      ]
-    }).then((result) => {
-      respond(result.index === 1); // index 0=拒绝, 1=同意
-    });
+      promptAction.showDialog({
+        title: '🔐 ' + reqTitle,
+        message: reqDesc + '\n\n' + reqDetails.join('\n'),
+        buttons: [
+          { text: '拒绝', color: '#FF4444' },
+          { text: '同意', color: '#5B5BD6' }
+        ]
+      }).then((result) => {
+        respond(result.index === 1);
+      });
+    }
+  }
+
+  private async respondApprove(choice: string): Promise<void> {
+    this.approveInProgress = true;
+    try {
+      await this.hermesApi.approveRun(this.approveRunId, choice);
+      const labels: Record<string, string> = {
+        'once': '仅本次放行',
+        'session': '本次会话放行',
+        'always': '始终允许',
+        'deny': '拒绝'
+      };
+      const label: string = labels[choice] ?? choice;
+      const replyMsg: ChatMessage = {
+        role: 'assistant',
+        content: '✅ 已响应授权：' + label
+      };
+      this.messageList.push(replyMsg);
+      this.scheduleSaveMessages();
+    } catch (error) {
+      const errMsg: ChatMessage = {
+        role: 'assistant',
+        content: '❌ 授权请求失败：' + (error instanceof Error ? (error as Error).message : String(error))
+      };
+      this.messageList.push(errMsg);
+      this.scheduleSaveMessages();
+    } finally {
+      this.showDialog = false;
+      this.approveInProgress = false;
+    }
   }
 
   // 检测当前WiFi，返回应该使用的API地址
@@ -179,13 +247,24 @@ struct ChatPage {
         // 建立WebSocket长连接
         this.setupWebSocket(detectedUrl);
 
-        const welcome: ChatMessage = { role: 'assistant', content: '' };
-        if (this.apiKey !== '') {
-          welcome.content = '你好！我是小Q v' + APP_VERSION + '，当前网络：' + this.networkMode + '。有什么可以帮你的？';
-        } else {
-          welcome.content = '欢迎使用小Q！请先点击右上角 ⚙️ 按钮配置API密钥。';
-        }
-        this.messageList.push(welcome);
+        // 恢复历史消息
+        loadMessages(ctx).then((saved: StoredMessage[]) => {
+          if (saved.length > 0) {
+            const restored: ChatMessage[] = [];
+            for (let i: number = 0; i < saved.length; i++) {
+              restored.push({ role: saved[i].role, content: saved[i].content });
+            }
+            this.messageList = restored;
+          } else {
+            const welcome: ChatMessage = { role: 'assistant', content: '' };
+            if (this.apiKey !== '') {
+              welcome.content = '你好！我是小Q v' + APP_VERSION + '，当前网络：' + this.networkMode + '。有什么可以帮你的？';
+            } else {
+              welcome.content = '欢迎使用小Q！请先点击右上角 ⚙️ 按钮配置API密钥。';
+            }
+            this.messageList.push(welcome);
+          }
+        });
       });
     });
   }
@@ -193,6 +272,27 @@ struct ChatPage {
   aboutToDisappear(): void {
     this.hermesApi.destroy();
     this.wsClient.close();
+  }
+
+  /**
+   * 页面从后台切回前台时，检查WebSocket状态并重连
+   */
+  onPageShow(): void {
+    this.pageVisible = true;
+    if (!this.wsClient.isConnected()) {
+      // 重新检测网络并重建WebSocket
+      this.detectApiUrl().then((detectedUrl: string) => {
+        this.setupWebSocket(detectedUrl);
+        console.info('WS reconnected on foreground');
+      });
+    }
+  }
+
+  /**
+   * 页面推到后台时标记，但不断开WS（让系统决定是否断开）
+   */
+  onPageHide(): void {
+    this.pageVisible = false;
   }
 
   private async saveSettings(): Promise<void> {
@@ -207,10 +307,12 @@ struct ChatPage {
     this.wsClient.close();
     this.setupWebSocket(detectedUrl);
     this.showSettings = false;
+    this.showDialog = false;
 
     if (this.apiKey !== '') {
       const savedMsg: ChatMessage = { role: 'assistant', content: '配置已保存！当前网络：' + this.networkMode + '，可以开始聊天了。' };
       this.messageList.push(savedMsg);
+      this.scheduleSaveMessages();
     }
   }
 
@@ -236,6 +338,7 @@ struct ChatPage {
     // 添加用户消息到界面
     const userMsg: ChatMessage = { role: 'user', content: text };
     this.messageList.push(userMsg);
+    this.scheduleSaveMessages();
     history.push({ role: 'user', content: text });
 
     this.inputText = '';
@@ -250,113 +353,112 @@ struct ChatPage {
       session_id: this.wsClient.clientId
     });
   }
-
   build() {
-    Column() {
-      // 标题栏
-      Row() {
-        Text('小Q')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#1A1A2E')
-        Blank()
-        Button() {
-          Text('📁')
+    Stack() {
+      Column() {
+        // 标题栏
+        Row() {
+          Text('小Q')
             .fontSize(20)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#1A1A2E')
+          Blank()
+          Button() {
+            Text('📁')
+              .fontSize(20)
+          }
+          .width(44)
+          .height(44)
+          .backgroundColor('#F0F0FF')
+          .borderRadius(22)
+          .margin({ right: 8 })
+          .onClick(() => {
+            this.navigateToFiles();
+          })
+          Button() {
+            Text('⚙️')
+              .fontSize(20)
+          }
+          .width(44)
+          .height(44)
+          .backgroundColor('#F0F0FF')
+          .borderRadius(22)
+          .onClick(() => {
+            this.tempApiKey = this.apiKey;
+            this.showSettings = true;
+            this.showDialog = true;
+          })
         }
-        .width(44)
-        .height(44)
-        .backgroundColor('#F0F0FF')
-        .borderRadius(22)
-        .margin({ right: 8 })
-        .onClick(() => {
-          this.navigateToFiles();
-        })
-        Button() {
-          Text('⚙️')
-            .fontSize(20)
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+        .backgroundColor('#F8F9FF')
+
+        // 消息列表
+        List() {
+          ForEach(this.messageList, (message: ChatMessage, index: number) => {
+            ListItem() {
+              this.MessageBubble(message)
+            }
+          }, (message: ChatMessage, index: number) => index.toString())
+
+          // 流式消息气泡
+          ListItem() {
+            this.StreamingBubble()
+          }
+          .visibility(this.isStreaming ? Visibility.Visible : Visibility.None)
         }
-        .width(44)
-        .height(44)
-        .backgroundColor('#F0F0FF')
-        .borderRadius(22)
-        .onClick(() => {
-          this.tempApiKey = this.apiKey;
-          this.showSettings = true;
-        })
+        .width('100%')
+        .layoutWeight(1)
+        .padding({ left: 12, right: 12, top: 8 })
+        .scrollBar(BarState.Auto)
+        .edgeEffect(EdgeEffect.Spring)
+        .onClick(() => {})
+
+        // 输入区域
+        Row() {
+          TextInput({ placeholder: '给小Q发消息...', text: this.inputText })
+            .layoutWeight(1)
+            .height(44)
+            .backgroundColor('#F0F0F5')
+            .borderRadius(22)
+            .padding({ left: 16, right: 16 })
+            .onChange((value: string) => { this.inputText = value; })
+            .onSubmit(() => { this.sendMessage(); })
+            .enabled(!this.isLoading)
+
+          Button() {
+            if (this.isLoading) {
+              LoadingProgress().width(20).height(20).color('#FFFFFF')
+            } else {
+              Text('发送').fontSize(14).fontColor('#FFFFFF')
+            }
+          }
+          .width(60).height(40)
+          .backgroundColor(this.isLoading ? '#9999CC' : '#5B5BD6')
+          .borderRadius(20).margin({ left: 8 })
+          .enabled(!this.isLoading && this.inputText.trim().length > 0)
+          .onClick(() => { this.sendMessage(); })
+        }
+        .width('100%')
+        .padding({ left: 12, right: 12, bottom: 12, top: 8 })
+        .backgroundColor('#FFFFFF')
+
+        // 设置面板（底部弹窗覆盖在内容之上）
+        if (this.showSettings) {
+          this.SettingsPanel()
+        }
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+      .height('100%')
       .backgroundColor('#F8F9FF')
 
-      // 消息列表
-      List() {
-        ForEach(this.messageList, (message: ChatMessage, index: number) => {
-          ListItem() {
-            this.MessageBubble(message)
-          }
-        }, (message: ChatMessage, index: number) => index.toString())
-
-        // 流式消息气泡（正在回复时显示，否则隐藏）
-        ListItem() {
-          this.StreamingBubble()
-        }
-        .visibility(this.isStreaming ? Visibility.Visible : Visibility.None)
+      // 授权卡片覆盖层——直接用 Stack 渲染，不用 bindContentCover
+      if (this.showDialog && !this.showSettings) {
+        this.ApproveOverlay()
       }
-      .width('100%')
-      .layoutWeight(1)
-      .padding({ left: 12, right: 12, top: 8 })
-      .scrollBar(BarState.Auto)
-      .edgeEffect(EdgeEffect.Spring)
-      // 新消息自动滚到底部
-      .onClick(() => {})
-
-      // 输入区域
-      Row() {
-        TextInput({ placeholder: '给小Q发消息...', text: this.inputText })
-          .layoutWeight(1)
-          .height(44)
-          .backgroundColor('#F0F0F5')
-          .borderRadius(22)
-          .padding({ left: 16, right: 16 })
-          .onChange((value: string) => {
-            this.inputText = value;
-          })
-          .onSubmit(() => {
-            this.sendMessage();
-          })
-          .enabled(!this.isLoading)
-
-        Button() {
-          if (this.isLoading) {
-            LoadingProgress()
-              .width(20)
-              .height(20)
-              .color('#FFFFFF')
-          } else {
-            Text('发送')
-              .fontSize(14)
-              .fontColor('#FFFFFF')
-          }
-        }
-        .width(60)
-        .height(40)
-        .backgroundColor(this.isLoading ? '#9999CC' : '#5B5BD6')
-        .borderRadius(20)
-        .margin({ left: 8 })
-        .enabled(!this.isLoading && this.inputText.trim().length > 0)
-        .onClick(() => {
-          this.sendMessage();
-        })
-      }
-      .width('100%')
-      .padding({ left: 12, right: 12, bottom: 12, top: 8 })
-      .backgroundColor('#FFFFFF')
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F8F9FF')
-    .bindContentCover(this.showSettings, this.SettingsPanel())
   }
 
   @Builder
@@ -456,6 +558,145 @@ struct ChatPage {
   }
 
   @Builder
+  DialogLayer() {
+    // 已废弃——改用 Stack 直接渲染 ApproveOverlay
+  }
+
+  @Builder
+  ApproveOverlay() {
+    Column() {
+      Column() {
+        // 头部
+      Row() {
+        Text('🔐')
+          .fontSize(28)
+          .margin({ right: 10 })
+        Column() {
+          Text('授权请求')
+            .fontSize(12)
+            .fontColor('#888888')
+          Text('安全扫描')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#1A1A2E')
+            .lineHeight(24)
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+      }
+      .width('100%')
+      .margin({ bottom: 16 })
+
+      // 命令（代码块风格）
+      if (this.approveCommand.length > 0) {
+        Text('需要执行的命令：')
+          .fontSize(13)
+          .fontColor('#888888')
+          .width('100%')
+          .margin({ bottom: 6 })
+        Text(this.approveCommand)
+          .fontSize(13)
+          .fontColor('#FFFFFF')
+          .fontFamily('Courier')
+          .lineHeight(20)
+          .width('100%')
+          .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+          .backgroundColor('#1A1A2E')
+          .borderRadius(8)
+          .margin({ bottom: 12 })
+      }
+
+      // 匹配模式标签
+      if (this.approvePatterns.length > 0) {
+        Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap }) {
+          ForEach(this.approvePatterns, (pattern: string) => {
+            Text(pattern)
+              .fontSize(11)
+              .fontColor('#5B5BD6')
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .backgroundColor('#F0F0FF')
+              .borderRadius(10)
+              .margin({ right: 4, bottom: 4 })
+          })
+        }
+        .width('100%')
+        .margin({ bottom: 16 })
+      }
+
+      // 四个操作按钮
+      Column() {
+        Row() {
+          Button() {
+            Row() {
+              Text('▶️').fontSize(14)
+              Text('仅本次放行').fontSize(13).fontColor('#1A1A2E').margin({ left: 4 })
+            }.justifyContent(FlexAlign.Center)
+          }
+          .layoutWeight(1).height(44).backgroundColor('#F0F5FF').borderRadius(10).margin({ right: 6 })
+          .enabled(!this.approveInProgress)
+          .onClick(() => { this.respondApprove('once'); })
+
+          Button() {
+            Row() {
+              Text('🔄').fontSize(14)
+              Text('会话放行').fontSize(13).fontColor('#1A1A2E').margin({ left: 4 })
+            }.justifyContent(FlexAlign.Center)
+          }
+          .layoutWeight(1).height(44).backgroundColor('#F0FFF0').borderRadius(10).margin({ left: 6 })
+          .enabled(!this.approveInProgress)
+          .onClick(() => { this.respondApprove('session'); })
+        }
+        .width('100%')
+        .margin({ bottom: 8 })
+
+        Row() {
+          Button() {
+            Row() {
+              Text('✅').fontSize(14)
+              Text('始终允许').fontSize(13).fontColor('#FFFFFF').margin({ left: 4 })
+            }.justifyContent(FlexAlign.Center)
+          }
+          .layoutWeight(1).height(44).backgroundColor('#4CAF50').borderRadius(10).margin({ right: 6 })
+          .enabled(!this.approveInProgress)
+          .onClick(() => { this.respondApprove('always'); })
+
+          Button() {
+            Row() {
+              Text('⛔').fontSize(14)
+              Text('拒绝').fontSize(13).fontColor('#FFFFFF').margin({ left: 4 })
+            }.justifyContent(FlexAlign.Center)
+          }
+          .layoutWeight(1).height(44).backgroundColor('#FF5252').borderRadius(10).margin({ left: 6 })
+          .enabled(!this.approveInProgress)
+          .onClick(() => { this.respondApprove('deny'); })
+        }
+        .width('100%')
+      }
+      .width('100%')
+
+      // 处理中
+      if (this.approveInProgress) {
+        Row() {
+          LoadingProgress().width(16).height(16).color('#5B5BD6')
+          Text('处理中...').fontSize(13).fontColor('#999999').margin({ left: 8 })
+        }.width('100%').justifyContent(FlexAlign.Center).margin({ top: 12 })
+      }
+    }
+    .width('100%')
+    .padding(24)
+    .backgroundColor('#FFFFFF')
+    .borderRadius({ topLeft: 20, topRight: 20 })
+  }
+  .width('100%')
+  .height('100%')
+  .backgroundColor('#66000000')
+  .justifyContent(FlexAlign.End)
+  .onClick(() => {
+    this.showDialog = false;
+  })
+}
+
+  @Builder
   SettingsPanel() {
     Column() {
       // 标题
@@ -476,6 +717,7 @@ struct ChatPage {
         .backgroundColor('transparent')
         .onClick(() => {
           this.showSettings = false;
+          this.showDialog = false;
         })
       }
       .width('100%')
