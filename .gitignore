@@ -30,3 +30,6 @@ entry/agc-apiclient-*.json
 !hvigor-config.json5
 !build-profile.json5
 !hvigorfile.ts
+_build.log
+local.properties
+build-deploy.ps1
