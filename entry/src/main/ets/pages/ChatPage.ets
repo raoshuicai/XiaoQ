@@ -19,7 +19,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '1.9.7';
+const APP_VERSION: string = '1.9.8';
 
 @Entry
 @Component
@@ -44,9 +44,61 @@ struct ChatPage {
   private saveTimer: number | undefined = undefined;
   private pageVisible: boolean = true;
   private disconnectTimeout: number | undefined = undefined;
+  private lastStreamSeq: number = -1;
+  private syncRetryTimer: number | undefined = undefined;
+  private syncRetryCount: number = 0;
 
   private showToast(message: string): void {
     promptAction.showToast({ message: message });
+  }
+
+  // 替换消息列表中第一个恢复提示为指定内容
+  private replaceIndicator(newContent: string): void {
+    for (let i: number = this.messageList.length - 1; i >= 0; i--) {
+      if (this.messageList[i].content.startsWith('⏳ 正在恢复连接...')) {
+        const replaced: ChatMessage = { role: 'assistant', content: newContent };
+        this.messageList.splice(i, 1, replaced);
+        this.messageList = [...this.messageList]; // 触发 @State
+        this.scheduleSaveMessages();
+        return;
+      }
+    }
+  }
+
+  // 检查消息列表中是否存在恢复提示
+  private hasIndicator(): boolean {
+    for (let i: number = this.messageList.length - 1; i >= 0; i--) {
+      if (this.messageList[i].content.startsWith('⏳ 正在恢复连接...')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // sync_pending 重试循环（服务器可能还在处理中）
+  private startSyncRetry(): void {
+    this.stopSyncRetry();
+    this.syncRetryCount = 0;
+    this.syncRetryTimer = setInterval(() => {
+      this.syncRetryCount++;
+      // 每5秒重试一次，最多60秒
+      if (this.syncRetryCount > 12 || !this.hasIndicator()) {
+        this.stopSyncRetry();
+        return;
+      }
+      this.wsClient.send({
+        type: 'sync_pending',
+        session_id: this.wsClient.clientId,
+        last_seq: this.lastStreamSeq
+      });
+    }, 5000);
+  }
+
+  private stopSyncRetry(): void {
+    if (this.syncRetryTimer !== undefined) {
+      clearInterval(this.syncRetryTimer);
+      this.syncRetryTimer = undefined;
+    }
   }
 
   private scheduleSaveMessages(): void {
@@ -73,33 +125,25 @@ struct ChatPage {
         } else if (msg.type === 'sync_pending_response') {
           const content: string = msg.content ?? '';
           if (content.length > 0) {
-            // #11: 精确查找并替换断线恢复提示（不再依赖pop位置假设）
-            let found: boolean = false;
-            for (let i: number = this.messageList.length - 1; i >= 0; i--) {
-              if (this.messageList[i].content.startsWith('⏳ 正在恢复连接...')) {
-                const replaced: ChatMessage = { role: 'assistant', content: content };
-                this.messageList.splice(i, 1, replaced);
-                this.messageList = [...this.messageList]; // 触发 @State 更新
-                found = true;
-                break;
-              }
-            }
-            if (!found) {
-              const syncedMsg: ChatMessage = { role: 'assistant', content: content };
-              this.messageList.push(syncedMsg);
-            }
-            this.scheduleSaveMessages();
+            // 旧格式：完整回复（来自 offline_chats 缓存）
+            this.replaceIndicator(content);
             this.showToast('✨ 离线数据同步成功！');
-
-            // 清除恢复超时
-            if (this.disconnectTimeout !== undefined) {
-              clearTimeout(this.disconnectTimeout);
-              this.disconnectTimeout = undefined;
-            }
           }
-          this.isStreaming = false;
-          this.isLoading = false;
-          this.streamContent = '';
+          // 内容为空 → 服务器还没准备好，retry timer 会继续重试
+        } else if (msg.type === 'sync_resume') {
+          // 方案三：服务器通知流已恢复，后续 token 将实时推送
+          console.info('sync_resume: stream resumed, caught_up=' + (msg.caught_up ?? 0));
+          // 如果有已累积的 streamContent，替换掉恢复提示
+          if (this.streamContent.length > 0) {
+            this.replaceIndicator(this.streamContent);
+          }
+          this.isStreaming = true; // 让 StreamingBubble 显示
+          this.stopSyncRetry();     // 停止重试，服务器已在推送
+          // 清除超时
+          if (this.disconnectTimeout !== undefined) {
+            clearTimeout(this.disconnectTimeout);
+            this.disconnectTimeout = undefined;
+          }
         } else if (msg.type === 'notification') {
           // 显示Toast同时，也插入到聊天框作为消息记录
           this.showToast(msg.body as string);
@@ -110,6 +154,10 @@ struct ChatPage {
           this.messageList.push(notifyMsg);
           this.scheduleSaveMessages();
         } else if (msg.type === 'chat_token' && msg.content !== undefined) {
+          // 记录最后收到的 seq（支持断点续流）
+          if (msg.seq !== undefined) {
+            this.lastStreamSeq = msg.seq as number;
+          }
           // 流式回复：过滤"思考中。。"占位符，防止泄漏到最终答复
           const token: string = msg.content;
           if (this.streamContent.length === 0 && (token === '思考中。。' || token.startsWith('思考中。。'))) {
@@ -122,12 +170,22 @@ struct ChatPage {
           // 流式回复完成：将流消息添加到历史记录
           if (this.streamContent.length > 0) {
             const doneMsg: ChatMessage = { role: 'assistant', content: this.streamContent };
-            this.messageList.push(doneMsg);
+            // 替换掉恢复提示（如果存在）
+            this.replaceIndicator(this.streamContent);
+            if (!this.hasIndicator()) {
+              this.messageList.push(doneMsg);
+            }
             this.scheduleSaveMessages();
           }
           this.streamContent = '';
           this.isStreaming = false;
           this.isLoading = false;
+          this.lastStreamSeq = -1;
+          this.stopSyncRetry();
+          if (this.disconnectTimeout !== undefined) {
+            clearTimeout(this.disconnectTimeout);
+            this.disconnectTimeout = undefined;
+          }
         } else if (msg.type === 'chat_error') {
           this.isStreaming = false;
           this.isLoading = false;
@@ -144,47 +202,28 @@ struct ChatPage {
       // onConnect
       () => {
         console.info('WS connected');
-        // 重连后，立刻发起未完成的挂起数据同步请求
+        // 重连后，立刻发起未完成的挂起数据同步请求（带上最后收到的 seq）
         this.wsClient.send({
           type: 'sync_pending',
-          session_id: this.wsClient.clientId
+          session_id: this.wsClient.clientId,
+          last_seq: this.lastStreamSeq
         });
+        // 启动重试循环（服务器可能还在处理中）
+        this.startSyncRetry();
       },
       // onDisconnect
       () => {
         console.info('WS disconnected');
         // 如果流式回复进行中断线
         if (this.isStreaming) {
-          this.isStreaming = false;
+          // 方案三：保持 isStreaming 状态，不清除 streamContent，以便重连后断点续流
           this.isLoading = false;
-          // #10: 断线时先显示温和的恢复提示，而非恐怖红色错误
           const indicatorMsg: ChatMessage = {
             role: 'assistant',
             content: '⏳ 正在恢复连接...当前网络：' + this.networkMode
           };
           this.messageList.push(indicatorMsg);
           this.scheduleSaveMessages();
-          this.streamContent = '';
-
-          // 10秒后还没恢复，改为错误提示
-          if (this.disconnectTimeout !== undefined) {
-            clearTimeout(this.disconnectTimeout);
-          }
-          this.disconnectTimeout = setTimeout(() => {
-            for (let i: number = this.messageList.length - 1; i >= 0; i--) {
-              if (this.messageList[i].content.startsWith('⏳ 正在恢复连接...')) {
-                const errReplaced: ChatMessage = {
-                  role: 'assistant',
-                  content: '❌ 网络连接中断，回复未完成。当前网络：' + this.networkMode
-                };
-                this.messageList.splice(i, 1, errReplaced);
-                this.messageList = [...this.messageList]; // 触发 @State 更新
-                this.scheduleSaveMessages();
-                break;
-              }
-            }
-            this.disconnectTimeout = undefined;
-          }, 10000);
         }
       }
     );
@@ -333,6 +372,7 @@ struct ChatPage {
       clearTimeout(this.disconnectTimeout);
       this.disconnectTimeout = undefined;
     }
+    this.stopSyncRetry();
   }
 
   /**

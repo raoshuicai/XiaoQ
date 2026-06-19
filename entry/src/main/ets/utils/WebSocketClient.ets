@@ -27,6 +27,10 @@ export interface WsMessage {
   command?: string;       // 需要授权的命令
   pattern_keys?: string[]; // 匹配的模式
   choices?: string[];     // 可选操作列表
+  // 断点续流（方案三）
+  seq?: number;           // token 序列号
+  last_seq?: number;      // 客户端最后收到的 seq
+  caught_up?: number;     // sync_resume 追回的 token 数
 }
 
 export type WsCallback = (msg: WsMessage) => void;
