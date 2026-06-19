@@ -45,6 +45,7 @@ export class WebSocketClient {
   private onMessage: WsCallback | undefined = undefined;
   private onConnect: (() => void) | undefined = undefined;
   private onDisconnect: (() => void) | undefined = undefined;
+  private disconnectNotified: boolean = false;  // 防重入标志位（issue #14）
 
   constructor(clientId: string) {
     this.clientId = clientId;
@@ -65,6 +66,8 @@ export class WebSocketClient {
     if (this.ws !== null) {
       this.close();
     }
+
+    this.disconnectNotified = false;
 
     try {
       const fullUrl: string = this.url + '/ws/push?client_id=' + this.clientId;
@@ -99,7 +102,8 @@ export class WebSocketClient {
       this.ws.on('close', () => {
         this.connected = false;
         this.stopPing();
-        if (this.onDisconnect !== undefined) {
+        if (!this.disconnectNotified && this.onDisconnect !== undefined) {
+          this.disconnectNotified = true;
           this.onDisconnect();
         }
         this.scheduleReconnect();
@@ -108,6 +112,10 @@ export class WebSocketClient {
       this.ws.on('error', () => {
         this.connected = false;
         this.stopPing();
+        if (!this.disconnectNotified && this.onDisconnect !== undefined) {
+          this.disconnectNotified = true;
+          this.onDisconnect();
+        }
         this.scheduleReconnect();
       });
 

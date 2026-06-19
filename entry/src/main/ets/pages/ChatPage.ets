@@ -19,7 +19,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '1.9.9';
+const APP_VERSION: string = '2.0.1';
 
 @Entry
 @Component

@@ -11,7 +11,7 @@ param(
   [string]$DeviceId = "127.0.0.1:5555"
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 $env:DEVECO_SDK_HOME = "D:\Program Files\Huawei\DevEco Studio\sdk"
 $env:JAVA_HOME = "D:\Program Files\Huawei\DevEco Studio\jbr"
 $env:NODE_HOME = "D:\Program Files\Huawei\DevEco Studio\tools\node"
@@ -34,8 +34,8 @@ if ((-not $SkipSync) -and ($RepoDir -ne "")) {
     "entry/src/main/ets/utils/HermesApi.ets",
     "entry/src/main/ets/utils/PreferencesHelper.ets",
     "entry/src/main/ets/utils/WebSocketClient.ets",
-    "entry/src/main/ets/components/ApproveCard.ets",
-    "entry/src/main/ets/entryability/PushServiceAbility.ets"
+    "entry/src/main/ets/entryability/PushServiceAbility.ets",
+    "entry/src/main/ets/entryability/EntryAbility.ets"
   )
   foreach ($f in $files) {
     $src = "$RepoDir/$f"
