@@ -19,7 +19,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '1.9.4';
+const APP_VERSION: string = '1.9.7';
 
 @Entry
 @Component
@@ -43,6 +43,7 @@ struct ChatPage {
   private wsClient: WebSocketClient = new WebSocketClient('harmony-' + Date.now().toString());
   private saveTimer: number | undefined = undefined;
   private pageVisible: boolean = true;
+  private disconnectTimeout: number | undefined = undefined;
 
   private showToast(message: string): void {
     promptAction.showToast({ message: message });
@@ -69,6 +70,36 @@ struct ChatPage {
       (msg: WsMessage) => {
         if (msg.type === 'approve_request') {
           this.handleApproveRequest(msg);
+        } else if (msg.type === 'sync_pending_response') {
+          const content: string = msg.content ?? '';
+          if (content.length > 0) {
+            // #11: 精确查找并替换断线恢复提示（不再依赖pop位置假设）
+            let found: boolean = false;
+            for (let i: number = this.messageList.length - 1; i >= 0; i--) {
+              if (this.messageList[i].content.startsWith('⏳ 正在恢复连接...')) {
+                const replaced: ChatMessage = { role: 'assistant', content: content };
+                this.messageList.splice(i, 1, replaced);
+                this.messageList = [...this.messageList]; // 触发 @State 更新
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              const syncedMsg: ChatMessage = { role: 'assistant', content: content };
+              this.messageList.push(syncedMsg);
+            }
+            this.scheduleSaveMessages();
+            this.showToast('✨ 离线数据同步成功！');
+
+            // 清除恢复超时
+            if (this.disconnectTimeout !== undefined) {
+              clearTimeout(this.disconnectTimeout);
+              this.disconnectTimeout = undefined;
+            }
+          }
+          this.isStreaming = false;
+          this.isLoading = false;
+          this.streamContent = '';
         } else if (msg.type === 'notification') {
           // 显示Toast同时，也插入到聊天框作为消息记录
           this.showToast(msg.body as string);
@@ -113,21 +144,47 @@ struct ChatPage {
       // onConnect
       () => {
         console.info('WS connected');
+        // 重连后，立刻发起未完成的挂起数据同步请求
+        this.wsClient.send({
+          type: 'sync_pending',
+          session_id: this.wsClient.clientId
+        });
       },
       // onDisconnect
       () => {
         console.info('WS disconnected');
-        // 如果流式回复进行中断线，触发fallback
+        // 如果流式回复进行中断线
         if (this.isStreaming) {
           this.isStreaming = false;
           this.isLoading = false;
-          const errMsg: ChatMessage = {
+          // #10: 断线时先显示温和的恢复提示，而非恐怖红色错误
+          const indicatorMsg: ChatMessage = {
             role: 'assistant',
-            content: '❌ 网络连接中断，回复未完成。当前网络：' + this.networkMode
+            content: '⏳ 正在恢复连接...当前网络：' + this.networkMode
           };
-          this.messageList.push(errMsg);
+          this.messageList.push(indicatorMsg);
           this.scheduleSaveMessages();
           this.streamContent = '';
+
+          // 10秒后还没恢复，改为错误提示
+          if (this.disconnectTimeout !== undefined) {
+            clearTimeout(this.disconnectTimeout);
+          }
+          this.disconnectTimeout = setTimeout(() => {
+            for (let i: number = this.messageList.length - 1; i >= 0; i--) {
+              if (this.messageList[i].content.startsWith('⏳ 正在恢复连接...')) {
+                const errReplaced: ChatMessage = {
+                  role: 'assistant',
+                  content: '❌ 网络连接中断，回复未完成。当前网络：' + this.networkMode
+                };
+                this.messageList.splice(i, 1, errReplaced);
+                this.messageList = [...this.messageList]; // 触发 @State 更新
+                this.scheduleSaveMessages();
+                break;
+              }
+            }
+            this.disconnectTimeout = undefined;
+          }, 10000);
         }
       }
     );
@@ -272,6 +329,10 @@ struct ChatPage {
   aboutToDisappear(): void {
     this.hermesApi.destroy();
     this.wsClient.close();
+    if (this.disconnectTimeout !== undefined) {
+      clearTimeout(this.disconnectTimeout);
+      this.disconnectTimeout = undefined;
+    }
   }
 
   /**
