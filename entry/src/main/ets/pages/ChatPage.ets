@@ -19,7 +19,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '1.9.8';
+const APP_VERSION: string = '1.9.9';
 
 @Entry
 @Component
@@ -157,6 +157,10 @@ struct ChatPage {
           // 记录最后收到的 seq（支持断点续流）
           if (msg.seq !== undefined) {
             this.lastStreamSeq = msg.seq as number;
+          }
+          // 收到第一个 token 即停止 sync 重试（避免 retry 再发一次 sync 导致重复回复）
+          if (this.hasIndicator()) {
+            this.stopSyncRetry();
           }
           // 流式回复：过滤"思考中。。"占位符，防止泄漏到最终答复
           const token: string = msg.content;
@@ -589,6 +593,7 @@ struct ChatPage {
           .fontSize(15)
           .fontColor(message.role === 'user' ? '#FFFFFF' : '#1A1A2E')
           .lineHeight(22)
+          .copyOption(CopyOptions.LocalDevice)
       }
       .padding({ left: 14, right: 14, top: 10, bottom: 10 })
       .backgroundColor(message.role === 'user' ? '#5B5BD6' : '#FFFFFF')
@@ -632,6 +637,7 @@ struct ChatPage {
           .fontSize(15)
           .fontColor('#1A1A2E')
           .lineHeight(22)
+          .copyOption(CopyOptions.LocalDevice)
 
         // 闪烁光标指示正在回复
         if (this.streamContent.length === 0) {
