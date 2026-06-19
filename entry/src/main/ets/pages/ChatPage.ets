@@ -19,7 +19,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.0.1';
+const APP_VERSION: string = '2.0.2';
 
 @Entry
 @Component
@@ -38,6 +38,7 @@ struct ChatPage {
   @State approveCommand: string = '';
   @State approvePatterns: string[] = [];
   @State approveInProgress: boolean = false;
+  @State deleteMsgIndex: number = -1;
 
   private hermesApi: HermesApi = new HermesApi('', '');
   private wsClient: WebSocketClient = new WebSocketClient('harmony-' + Date.now().toString());
@@ -47,9 +48,39 @@ struct ChatPage {
   private lastStreamSeq: number = -1;
   private syncRetryTimer: number | undefined = undefined;
   private syncRetryCount: number = 0;
+  private listScroller: Scroller = new Scroller();
 
   private showToast(message: string): void {
     promptAction.showToast({ message: message });
+  }
+
+  // 自动滚动到底部
+  private scrollToBottom(): void {
+    setTimeout(() => {
+      this.listScroller.scrollEdge(Edge.Bottom);
+    }, 100);
+  }
+
+  // 确认删除消息
+  private confirmDeleteMessage(): void {
+    if (this.deleteMsgIndex < 0 || this.deleteMsgIndex >= this.messageList.length) {
+      return;
+    }
+    promptAction.showDialog({
+      title: '删除消息',
+      message: '确定要删除这条消息吗？',
+      buttons: [
+        { text: '取消', color: '#999999' },
+        { text: '删除', color: '#FF4444' }
+      ]
+    }).then((result) => {
+      if (result.index === 1) {
+        this.messageList.splice(this.deleteMsgIndex, 1);
+        this.messageList = [...this.messageList]; // 触发 @State 更新
+        this.scheduleSaveMessages();
+        this.deleteMsgIndex = -1;
+      }
+    });
   }
 
   // 替换消息列表中第一个恢复提示为指定内容
@@ -180,6 +211,7 @@ struct ChatPage {
               this.messageList.push(doneMsg);
             }
             this.scheduleSaveMessages();
+            this.scrollToBottom();
           }
           this.streamContent = '';
           this.isStreaming = false;
@@ -206,14 +238,15 @@ struct ChatPage {
       // onConnect
       () => {
         console.info('WS connected');
-        // 重连后，立刻发起未完成的挂起数据同步请求（带上最后收到的 seq）
-        this.wsClient.send({
-          type: 'sync_pending',
-          session_id: this.wsClient.clientId,
-          last_seq: this.lastStreamSeq
-        });
-        // 启动重试循环（服务器可能还在处理中）
-        this.startSyncRetry();
+        // 只对"流中断未恢复"的会话发送同步请求（避免已完成流重复回放）
+        if (this.hasIndicator()) {
+          this.wsClient.send({
+            type: 'sync_pending',
+            session_id: this.wsClient.clientId,
+            last_seq: this.lastStreamSeq
+          });
+          this.startSyncRetry();
+        }
       },
       // onDisconnect
       () => {
@@ -355,6 +388,7 @@ struct ChatPage {
               restored.push({ role: saved[i].role, content: saved[i].content });
             }
             this.messageList = restored;
+            this.scrollToBottom();
           } else {
             const welcome: ChatMessage = { role: 'assistant', content: '' };
             if (this.apiKey !== '') {
@@ -444,6 +478,7 @@ struct ChatPage {
     const userMsg: ChatMessage = { role: 'user', content: text };
     this.messageList.push(userMsg);
     this.scheduleSaveMessages();
+    this.scrollToBottom();
     history.push({ role: 'user', content: text });
 
     this.inputText = '';
@@ -499,10 +534,10 @@ struct ChatPage {
         .backgroundColor('#F8F9FF')
 
         // 消息列表
-        List() {
+        List({ scroller: this.listScroller }) {
           ForEach(this.messageList, (message: ChatMessage, index: number) => {
             ListItem() {
-              this.MessageBubble(message)
+              this.MessageBubble(message, index)
             }
           }, (message: ChatMessage, index: number) => index.toString())
 
@@ -567,7 +602,7 @@ struct ChatPage {
   }
 
   @Builder
-  MessageBubble(message: ChatMessage) {
+  MessageBubble(message: ChatMessage, index: number) {
     Row() {
       if (message.role === 'user') {
         Blank()
@@ -613,6 +648,13 @@ struct ChatPage {
     .margin({ top: 8, bottom: 4 })
     .justifyContent(FlexAlign.SpaceBetween)
     .alignItems(VerticalAlign.Top)
+    .gesture(
+      LongPressGesture({ repeat: false, duration: 500 })
+        .onAction(() => {
+          this.deleteMsgIndex = index;
+          this.confirmDeleteMessage();
+        })
+    )
   }
 
   @Builder
