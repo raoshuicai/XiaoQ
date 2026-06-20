@@ -19,7 +19,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.0.2';
+const APP_VERSION: string = '2.0.6';
 
 @Entry
 @Component
@@ -48,6 +48,7 @@ struct ChatPage {
   private lastStreamSeq: number = -1;
   private syncRetryTimer: number | undefined = undefined;
   private syncRetryCount: number = 0;
+  private streamResumeTimeout: number | undefined = undefined;  // 方案D：30秒超时后重启retry
   private listScroller: Scroller = new Scroller();
 
   private showToast(message: string): void {
@@ -107,13 +108,14 @@ struct ChatPage {
   }
 
   // sync_pending 重试循环（服务器可能还在处理中）
-  private startSyncRetry(): void {
+  // force: 方案D超时兜底，跳过 hasIndicator 检查
+  private startSyncRetry(force: boolean = false): void {
     this.stopSyncRetry();
     this.syncRetryCount = 0;
     this.syncRetryTimer = setInterval(() => {
       this.syncRetryCount++;
       // 每5秒重试一次，最多60秒
-      if (this.syncRetryCount > 12 || !this.hasIndicator()) {
+      if (this.syncRetryCount > 12 || (!force && !this.hasIndicator())) {
         this.stopSyncRetry();
         return;
       }
@@ -169,8 +171,18 @@ struct ChatPage {
             this.replaceIndicator(this.streamContent);
           }
           this.isStreaming = true; // 让 StreamingBubble 显示
-          this.stopSyncRetry();     // 停止重试，服务器已在推送
-          // 清除超时
+          // 方案D：设30秒超时守卫生，超时后未收到chat_done则重启retry轮询
+          if (this.streamResumeTimeout !== undefined) {
+            clearTimeout(this.streamResumeTimeout);
+          }
+          this.streamResumeTimeout = setTimeout(() => {
+            if (this.isStreaming) {
+              console.info('streamResumeTimeout: no chat_done after 30s, starting forced retry');
+              this.startSyncRetry(true);
+            }
+            this.streamResumeTimeout = undefined;
+          }, 30000);
+          // 清除断线超时
           if (this.disconnectTimeout !== undefined) {
             clearTimeout(this.disconnectTimeout);
             this.disconnectTimeout = undefined;
@@ -222,9 +234,17 @@ struct ChatPage {
             clearTimeout(this.disconnectTimeout);
             this.disconnectTimeout = undefined;
           }
+          if (this.streamResumeTimeout !== undefined) {
+            clearTimeout(this.streamResumeTimeout);
+            this.streamResumeTimeout = undefined;
+          }
         } else if (msg.type === 'chat_error') {
           this.isStreaming = false;
           this.isLoading = false;
+          if (this.streamResumeTimeout !== undefined) {
+            clearTimeout(this.streamResumeTimeout);
+            this.streamResumeTimeout = undefined;
+          }
           const errMsg: string = (msg.message !== undefined) ? msg.message : '流式回复失败';
           const errChatMsg: ChatMessage = {
             role: 'assistant',
@@ -409,6 +429,10 @@ struct ChatPage {
     if (this.disconnectTimeout !== undefined) {
       clearTimeout(this.disconnectTimeout);
       this.disconnectTimeout = undefined;
+    }
+    if (this.streamResumeTimeout !== undefined) {
+      clearTimeout(this.streamResumeTimeout);
+      this.streamResumeTimeout = undefined;
     }
     this.stopSyncRetry();
   }
