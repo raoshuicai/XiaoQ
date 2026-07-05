@@ -46,6 +46,7 @@ export class WebSocketClient {
   private onConnect: (() => void) | undefined = undefined;
   private onDisconnect: (() => void) | undefined = undefined;
   private disconnectNotified: boolean = false;  // 防重入标志位（issue #14）
+  private pendingQueue: WsMessage[] = [];  // WS 未连接时暂存消息，连上后自动排空
 
   constructor(clientId: string) {
     this.clientId = clientId;
@@ -79,6 +80,8 @@ export class WebSocketClient {
           this.onConnect();
         }
         this.startPing();
+        // 排空待发送队列（WS 断线期间积压的消息）
+        this.drainPendingQueue();
       });
 
       this.ws.on('message', (err: Error, data: string | ArrayBuffer) => {
@@ -138,6 +141,10 @@ export class WebSocketClient {
       } catch (error) {
         console.error('WS send error: ' + error);
       }
+    } else {
+      // WS 未连接时入队，等待重连后自动排空
+      this.pendingQueue.push(msg);
+      console.info('WS queued message (type=' + msg.type + '), queue length=' + this.pendingQueue.length);
     }
   }
 
@@ -190,6 +197,20 @@ export class WebSocketClient {
       this.ws = null;
     }
     this.connected = false;
+  }
+
+  // 排空待发送队列：WS 断线期间积压的消息按顺序发出
+  private drainPendingQueue(): void {
+    while (this.pendingQueue.length > 0) {
+      const msg: WsMessage = this.pendingQueue.shift()!;
+      try {
+        this.ws?.send(JSON.stringify(msg));
+        console.info('WS drained queued message (type=' + msg.type + '), remaining=' + this.pendingQueue.length);
+      } catch (error) {
+        console.error('WS drain error: ' + error);
+        break;
+      }
+    }
   }
 
   public isConnected(): boolean {
