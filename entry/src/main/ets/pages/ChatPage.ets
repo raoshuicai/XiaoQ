@@ -3,7 +3,7 @@ import { router } from '@kit.ArkUI';
 import { wifiManager } from '@kit.ConnectivityKit';
 import { common } from '@kit.AbilityKit';
 import { HermesApi, ChatMessage } from '../utils/HermesApi.ets';
-import { saveApiKey, loadApiKey, saveMessages, loadMessages } from '../utils/PreferencesHelper.ets';
+import { saveApiKey, loadApiKey, saveMessages, loadMessages, getOrCreateDeviceId } from '../utils/PreferencesHelper.ets';
 import { StoredMessage } from '../utils/PreferencesHelper.ets';
 import { WebSocketClient, WsMessage } from '../utils/WebSocketClient.ets';
 
@@ -19,7 +19,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.0.6';
+const APP_VERSION: string = '2.0.7';
 
 @Entry
 @Component
@@ -41,7 +41,7 @@ struct ChatPage {
   @State deleteMsgIndex: number = -1;
 
   private hermesApi: HermesApi = new HermesApi('', '');
-  private wsClient: WebSocketClient = new WebSocketClient('harmony-' + Date.now().toString());
+  private wsClient: WebSocketClient = new WebSocketClient('pending');  // 临时ID，aboutToAppear 中替换为设备ID
   private saveTimer: number | undefined = undefined;
   private pageVisible: boolean = true;
   private disconnectTimeout: number | undefined = undefined;
@@ -49,6 +49,7 @@ struct ChatPage {
   private syncRetryTimer: number | undefined = undefined;
   private syncRetryCount: number = 0;
   private streamResumeTimeout: number | undefined = undefined;  // 方案D：30秒超时后重启retry
+  private streamStallTimer: number | undefined = undefined;     // Batch 3：流式回复停顿时自动请求 sync_pending
   private listScroller: Scroller = new Scroller();
 
   private showToast(message: string): void {
@@ -84,17 +85,18 @@ struct ChatPage {
     });
   }
 
-  // 替换消息列表中第一个恢复提示为指定内容
-  private replaceIndicator(newContent: string): void {
+  // 替换消息列表中第一个恢复提示为指定内容，返回是否找到并替换
+  private replaceIndicator(newContent: string): boolean {
     for (let i: number = this.messageList.length - 1; i >= 0; i--) {
       if (this.messageList[i].content.startsWith('⏳ 正在恢复连接...')) {
         const replaced: ChatMessage = { role: 'assistant', content: newContent };
         this.messageList.splice(i, 1, replaced);
         this.messageList = [...this.messageList]; // 触发 @State
         this.scheduleSaveMessages();
-        return;
+        return true;
       }
     }
+    return false;
   }
 
   // 检查消息列表中是否存在恢复提示
@@ -205,6 +207,11 @@ struct ChatPage {
           if (this.hasIndicator()) {
             this.stopSyncRetry();
           }
+          // Batch 3：收到 token 即清除停滞超时（流正常进行）
+          if (this.streamStallTimer !== undefined) {
+            clearTimeout(this.streamStallTimer);
+            this.streamStallTimer = undefined;
+          }
           // 流式回复：过滤"思考中。。"占位符，防止泄漏到最终答复
           const token: string = msg.content;
           if (this.streamContent.length === 0 && (token === '思考中。。' || token.startsWith('思考中。。'))) {
@@ -217,9 +224,8 @@ struct ChatPage {
           // 流式回复完成：将流消息添加到历史记录
           if (this.streamContent.length > 0) {
             const doneMsg: ChatMessage = { role: 'assistant', content: this.streamContent };
-            // 替换掉恢复提示（如果存在）
-            this.replaceIndicator(this.streamContent);
-            if (!this.hasIndicator()) {
+            // 替换掉恢复提示（如果存在），只有没替换时才追加
+            if (!this.replaceIndicator(this.streamContent)) {
               this.messageList.push(doneMsg);
             }
             this.scheduleSaveMessages();
@@ -230,6 +236,10 @@ struct ChatPage {
           this.isLoading = false;
           this.lastStreamSeq = -1;
           this.stopSyncRetry();
+          if (this.streamStallTimer !== undefined) {
+            clearTimeout(this.streamStallTimer);
+            this.streamStallTimer = undefined;
+          }
           if (this.disconnectTimeout !== undefined) {
             clearTimeout(this.disconnectTimeout);
             this.disconnectTimeout = undefined;
@@ -241,6 +251,10 @@ struct ChatPage {
         } else if (msg.type === 'chat_error') {
           this.isStreaming = false;
           this.isLoading = false;
+          if (this.streamStallTimer !== undefined) {
+            clearTimeout(this.streamStallTimer);
+            this.streamStallTimer = undefined;
+          }
           if (this.streamResumeTimeout !== undefined) {
             clearTimeout(this.streamResumeTimeout);
             this.streamResumeTimeout = undefined;
@@ -387,7 +401,12 @@ struct ChatPage {
   aboutToAppear(): void {
     // 从Preferences加载持久化的API Key
     const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
-    loadApiKey(ctx).then((savedKey: string) => {
+    // 先获取固定设备 ID（用于 sync_pending 匹配离线缓存，重启后不变）
+    getOrCreateDeviceId(ctx).then((deviceId: string) => {
+      this.wsClient.clientId = deviceId;
+      console.info('Device ID: ' + deviceId);
+      return loadApiKey(ctx);
+    }).then((savedKey: string) => {
       if (savedKey !== '') {
         this.apiKey = savedKey;
       }
@@ -435,6 +454,10 @@ struct ChatPage {
       this.streamResumeTimeout = undefined;
     }
     this.stopSyncRetry();
+    if (this.streamStallTimer !== undefined) {
+      clearTimeout(this.streamStallTimer);
+      this.streamStallTimer = undefined;
+    }
   }
 
   /**
@@ -491,11 +514,14 @@ struct ChatPage {
       return;
     }
 
-    // 先构建历史消息（不含当前未完成的流消息）
+    // 先构建历史消息（不含当前未完成的流消息，过滤 UI 占位符）
     const history: ChatRecord[] = [];
     for (let i: number = 0; i < this.messageList.length; i++) {
       const m: ChatMessage = this.messageList[i];
-      history.push({ role: m.role, content: m.content });
+      // 过滤 ⏳ 恢复连接占位符，防止污染 LLM 上下文
+      if (!m.content.startsWith('⏳ 正在恢复连接')) {
+        history.push({ role: m.role, content: m.content });
+      }
     }
 
     // 添加用户消息到界面
@@ -509,6 +535,21 @@ struct ChatPage {
     this.isLoading = true;
     this.isStreaming = true;
     this.streamContent = '';
+    // Batch 3：流式回复停顿时长超过 20 秒无 token 则主动请求 sync_pending
+    if (this.streamStallTimer !== undefined) {
+      clearTimeout(this.streamStallTimer);
+    }
+    this.streamStallTimer = setTimeout(() => {
+      this.streamStallTimer = undefined;
+      if (this.isStreaming) {
+        console.info('streamStallTimer: no tokens for 20s, requesting sync_pending');
+        this.wsClient.send({
+          type: 'sync_pending',
+          session_id: this.wsClient.clientId,
+          last_seq: this.lastStreamSeq
+        });
+      }
+    }, 20000);
 
     // 通过WebSocket发送流式聊天请求
     this.wsClient.send({
