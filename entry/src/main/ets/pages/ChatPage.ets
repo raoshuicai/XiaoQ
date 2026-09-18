@@ -29,7 +29,7 @@ import { approveService } from '../services/ApproveService.ets';
 import { notifyService } from '../services/NotifyService.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.3.0';
+const APP_VERSION: string = '2.4.0';
 
 @Entry
 @Component
@@ -396,6 +396,11 @@ struct ChatPage {
           },
           onNotify: () => {
             router.pushUrl({ url: 'pages/NotifyPage' }).catch((e: Error) => {
+              this.showToast('跳转失败：' + e.message);
+            });
+          },
+          onCron: () => {
+            router.pushUrl({ url: 'pages/CronPage' }).catch((e: Error) => {
               this.showToast('跳转失败：' + e.message);
             });
           },

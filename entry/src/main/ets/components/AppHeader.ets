@@ -16,6 +16,8 @@ export struct AppHeader {
   onFiles: () => void = () => {};
   /** 点击 🔔 → 通知中心（S9） */
   onNotify: () => void = () => {};
+  /** 点击 ⏰ → 定时任务面板（S10） */
+  onCron: () => void = () => {};
   /** 点击 ⚙️ → 打开设置面板 */
   onSettings: () => void = () => {};
 
@@ -81,6 +83,7 @@ export struct AppHeader {
       .height(44)
       .margin({ right: 8 })
 
+      this.IconButton('⏰', (): void => { this.onCron(); })
       this.IconButton('⚙️', (): void => { this.onSettings(); })
     }
     .width('100%')
