@@ -33,7 +33,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.6.1';
+const APP_VERSION: string = '2.7.0';
 
 @Entry
 @Component
@@ -537,6 +537,18 @@ struct ChatPage {
             onHistory: () => {
               this.showSettings = false;
               router.pushUrl({ url: 'pages/ApproveHistoryPage' }).catch((e: Error) => {
+                this.showToast('跳转失败：' + e.message);
+              });
+            },
+            onModels: () => {
+              this.showSettings = false;
+              router.pushUrl({ url: 'pages/ModelPage' }).catch((e: Error) => {
+                this.showToast('跳转失败：' + e.message);
+              });
+            },
+            onSkills: () => {
+              this.showSettings = false;
+              router.pushUrl({ url: 'pages/SkillsPage' }).catch((e: Error) => {
                 this.showToast('跳转失败：' + e.message);
               });
             }
