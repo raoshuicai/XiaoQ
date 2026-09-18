@@ -1,9 +1,5 @@
 import { rcp } from '@kit.RemoteCommunicationKit';
-
-export interface ChatMessage {
-  role: string;
-  content: string;
-}
+import { ChatMessage } from '../models/ChatModels.ets';
 
 class HermesError extends Error {
   constructor(message: string) {

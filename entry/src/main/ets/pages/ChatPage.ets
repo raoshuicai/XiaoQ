@@ -2,16 +2,12 @@ import { promptAction } from '@kit.ArkUI';
 import { router } from '@kit.ArkUI';
 import { wifiManager } from '@kit.ConnectivityKit';
 import { common } from '@kit.AbilityKit';
-import { HermesApi, ChatMessage } from '../utils/HermesApi.ets';
+import { HermesApi } from '../utils/HermesApi.ets';
 import { saveApiKey, loadApiKey, saveMessages, loadMessages, getOrCreateDeviceId } from '../utils/PreferencesHelper.ets';
-import { StoredMessage } from '../utils/PreferencesHelper.ets';
-import { WebSocketClient, WsMessage } from '../utils/WebSocketClient.ets';
-
-// 流式聊天用的消息记录类型
-interface ChatRecord {
-  role: string;
-  content: string;
-}
+import { WebSocketClient } from '../utils/WebSocketClient.ets';
+// S1：所有共享类型统一从 models 层引入（HermesApi/PreferencesHelper/WebSocketClient 不再自行定义）
+import { ChatMessage, ChatRecord, StoredMessage } from '../models/ChatModels.ets';
+import { WsMessage } from '../models/WsModels.ets';
 
 // 家里WiFi配置
 const HOME_WIFI_SSID: string = 'HUAWEI-404';
@@ -19,7 +15,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.0.8';
+const APP_VERSION: string = '2.0.9';
 
 @Entry
 @Component

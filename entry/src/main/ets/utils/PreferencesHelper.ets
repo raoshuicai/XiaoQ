@@ -1,5 +1,6 @@
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
+import { StoredMessage } from '../models/ChatModels.ets';
 
 const STORE_NAME: string = 'xiaoq_preferences';
 const KEY_API_KEY: string = 'api_key';
@@ -45,11 +46,6 @@ export async function loadApiKey(context: common.Context): Promise<string> {
 }
 
 // === 聊天消息持久化 ===
-
-export interface StoredMessage {
-  role: string;
-  content: string;
-}
 
 export async function saveMessages(context: common.Context, messages: StoredMessage[]): Promise<void> {
   try {

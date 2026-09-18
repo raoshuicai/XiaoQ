@@ -1,39 +1,8 @@
 import { webSocket } from '@kit.NetworkKit';
+import { WsMessage, WsCallback } from '../models/WsModels.ets';
 
 const WS_PING_INTERVAL: number = 15000;  // 15秒心跳（原30秒，隧道不稳定需更快检测断线）
 const WS_RECONNECT_DELAY: number = 2000; // 断线重连延时2秒（原5秒）
-
-export interface WsMessage {
-  type: string;
-  // 推送/授权
-  id?: string;
-  title?: string;
-  description?: string;
-  details?: Object[];
-  requester?: string;
-  body?: string;
-  approved?: boolean;
-  timestamp?: number;
-  // 流式聊天
-  content?: string;       // chat_token 内容
-  name?: string;          // 工具名
-  arguments?: string;     // 工具参数
-  message?: string;       // chat_error 信息
-  // 聊天请求
-  messages?: Object[];    // 消息历史
-  session_id?: string;    // 会话ID
-  // 授权卡片（新格式）
-  run_id?: string;        // Hermes 运行ID
-  command?: string;       // 需要授权的命令
-  pattern_keys?: string[]; // 匹配的模式
-  choices?: string[];     // 可选操作列表
-  // 断点续流（方案三）
-  seq?: number;           // token 序列号
-  last_seq?: number;      // 客户端最后收到的 seq
-  caught_up?: number;     // sync_resume 追回的 token 数
-}
-
-export type WsCallback = (msg: WsMessage) => void;
 
 export class WebSocketClient {
   private ws: webSocket.WebSocket | null = null;
