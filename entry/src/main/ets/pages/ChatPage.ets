@@ -25,9 +25,11 @@ import { ApproveLayer } from '../components/ApproveLayer.ets';
 import { SettingsPanel } from '../components/SettingsPanel.ets';
 // S7：审批全局化
 import { approveService } from '../services/ApproveService.ets';
+// S9：通知中心未读数
+import { notifyService } from '../services/NotifyService.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.2.0';
+const APP_VERSION: string = '2.3.0';
 
 @Entry
 @Component
@@ -125,6 +127,8 @@ struct ChatPage {
       chatService.append('assistant',
         '📬 ' + (msg.title !== undefined ? msg.title + '：' : '') + (msg.body as string));
       this.syncMessages();
+      // S9：未读角标 +1（服务端已落库，这里只做本地即时反馈）
+      notifyService.bumpUnread();
     };
     hooks.onApprove = (msg: WsMessage): void => {
       this.handleApproveRequest(msg);
@@ -259,6 +263,11 @@ struct ChatPage {
         // 建立WebSocket长连接
         this.setupWebSocket(detectedUrl);
 
+        // S9：启动时同步一次未读数（服务端 DB 是单一数据源，AppStorage 只是缓存）
+        notifyService.refreshUnread().catch((e: Error) => {
+          console.info('unread refresh failed: ' + e.message);
+        });
+
         // 恢复历史消息（S4：ChatService 内部处理新 key 读取 + 旧 key 迁移）
         chatService.loadSaved().then((restored: ChatMessage[]) => {
           if (restored.length > 0) {
@@ -292,6 +301,10 @@ struct ChatPage {
     this.pageVisible = true;
     // S7：登记本页为「审批可展示页」——只有前台页面会渲染审批卡片
     approveService.setActivePage('chat');
+    // S9：回到前台刷新未读数（通知页可能刚标过已读）
+    notifyService.refreshUnread().catch((e: Error) => {
+      console.info('unread refresh failed: ' + e.message);
+    });
     // device_id 未就绪时不连接（等 aboutToAppear 的异步链），避免 pending 垃圾连接 + 连接抖动
     if (this.deviceId === '') {
       return;
@@ -378,6 +391,11 @@ struct ChatPage {
           },
           onTokens: () => {
             router.pushUrl({ url: 'pages/TokensPage' }).catch((e: Error) => {
+              this.showToast('跳转失败：' + e.message);
+            });
+          },
+          onNotify: () => {
+            router.pushUrl({ url: 'pages/NotifyPage' }).catch((e: Error) => {
               this.showToast('跳转失败：' + e.message);
             });
           },
