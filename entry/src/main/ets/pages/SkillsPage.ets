@@ -21,8 +21,26 @@ struct SkillsPage {
   @State errorMsg: string = '';
 
   @State skills: SkillItem[] = [];
+  /** 已展示的数量（客户端分页，避免 237 项一次性全量渲染）*/
+  @State shownCount: number = 40;
   @State keyword: string = '';
   @State mem: MemoryInfo = new MemoryInfo();
+
+  /** 当前应渲染的技能（切片）*/
+  private visibleSkills(): SkillItem[] {
+    if (this.skills.length <= this.shownCount) {
+      return this.skills;
+    }
+    const out: SkillItem[] = [];
+    for (let i: number = 0; i < this.shownCount && i < this.skills.length; i++) {
+      out.push(this.skills[i]);
+    }
+    return out;
+  }
+
+  private hasMoreSkills(): boolean {
+    return this.skills.length > this.shownCount;
+  }
 
   @StorageLink('apiKey') apiKey: string = '';
 
@@ -38,6 +56,7 @@ struct SkillsPage {
   private async loadSkills(): Promise<void> {
     this.loading = true;
     this.errorMsg = '';
+    this.shownCount = 40;      // 换关键词/刷新后重置分页
     try {
       await this.ensureRest();
       this.skills = await discoveryService.fetchSkills(this.keyword.trim());
@@ -207,7 +226,7 @@ struct SkillsPage {
             .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
           } else {
             List() {
-              ForEach(this.skills, (s: SkillItem, idx: number) => {
+              ForEach(this.visibleSkills(), (s: SkillItem, idx: number) => {
                 ListItem() {
                   Column() {
                     Row() {
@@ -244,11 +263,31 @@ struct SkillsPage {
                   .alignItems(HorizontalAlign.Start)
                 }
               }, (s: SkillItem) => s.category + '/' + s.name)
+
+              // 客户端分页：一次只渲染 40 项，触底再放一批
+              if (this.hasMoreSkills()) {
+                ListItem() {
+                  Text('加载更多（已显示 ' + this.shownCount + ' / ' + this.skills.length + '）')
+                    .fontSize(12)
+                    .fontColor('#5B5BD6')
+                    .width('100%')
+                    .textAlign(TextAlign.Center)
+                    .padding({ top: 14, bottom: 14 })
+                    .onClick(() => {
+                      this.shownCount = this.shownCount + 40;
+                    })
+                }
+              }
             }
             .width('100%')
             .layoutWeight(1)
             .scrollBar(BarState.Auto)
             .edgeEffect(EdgeEffect.Spring)
+            .onReachEnd(() => {
+              if (this.hasMoreSkills()) {
+                this.shownCount = this.shownCount + 40;
+              }
+            })
           }
         } else {
           Scroll() {

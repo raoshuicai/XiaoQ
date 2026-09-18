@@ -20,7 +20,7 @@ struct ApproveHistoryPage {
   @State filterChoice: string = 'all';
 
   aboutToAppear(): void {
-    this.refresh();
+    // ⚠️ 不在这里 refresh：首次进入时 onPageShow 也会触发（本地数据，无需重复拉）
   }
 
   onPageShow(): void {

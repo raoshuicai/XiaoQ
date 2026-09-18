@@ -38,7 +38,8 @@ struct TokensPage {
   }
 
   aboutToAppear(): void {
-    this.loadAll();
+    // ⚠️ 不在这里加载：首次进入时 onPageShow 也会触发，
+    //    两处都调会让页面第一件事就发两遍同样的请求。
   }
 
   private async loadAll(): Promise<void> {

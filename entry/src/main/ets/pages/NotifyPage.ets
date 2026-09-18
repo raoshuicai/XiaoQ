@@ -30,7 +30,9 @@ struct NotifyPage {
   @StorageLink('unreadCount') unreadCount: number = 0;
 
   aboutToAppear(): void {
-    this.load();
+  // ⚠️ 首次进入时 onPageShow 也会触发，这里**不要**再调一次 load()，
+  //    否则页面第一件事就是发两遍同样的请求。
+    // （已移除，改由 onPageShow 统一负责）
   }
 
   onPageShow(): void {
