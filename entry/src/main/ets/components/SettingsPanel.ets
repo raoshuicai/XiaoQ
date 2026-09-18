@@ -23,6 +23,8 @@ export struct SettingsPanel {
   onSave: (key: string) => void = () => {};
   /** 关闭回调 */
   onClose: () => void = () => {};
+  /** S11：打开审批历史 */
+  onHistory: () => void = () => {};
 
   /** 编辑中的密钥（仅存于本面板） */
   @State tempKey: string = '';
@@ -104,6 +106,32 @@ export struct SettingsPanel {
         .margin({ top: 8 })
 
       Blank()
+
+      // S11：审批历史入口
+      Row() {
+        Text('🗂  审批历史')
+          .fontSize(14)
+          .fontColor('#1A1A2E')
+          .layoutWeight(1)
+        Text('最近 20 条  ›')
+          .fontSize(12)
+          .fontColor('#AAAAAA')
+      }
+      .width('100%')
+      .height(46)
+      .padding({ left: 14, right: 14 })
+      .backgroundColor('#F5F5FA')
+      .borderRadius(10)
+      .margin({ bottom: 6 })
+      .onClick(() => {
+        this.onHistory();
+      })
+
+      Text('审批是本地记录，答过/关掉的都会留痕')
+        .fontSize(11)
+        .fontColor('#AAAAAA')
+        .width('100%')
+        .margin({ bottom: 10 })
 
       // 版本信息
       Text('小Q v' + this.appVersion)

@@ -29,7 +29,7 @@ import { approveService } from '../services/ApproveService.ets';
 import { notifyService } from '../services/NotifyService.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.4.4';
+const APP_VERSION: string = '2.5.1';
 
 @Entry
 @Component
@@ -202,10 +202,13 @@ struct ChatPage {
     if (msg.run_id === undefined) {
       return;
     }
+    // S11：带上触发上下文（description / session_id），卡片上能显示"哪个会话触发的"
     approveService.push(
       msg.run_id as string,
       (msg.command as string) ?? '',
-      (msg.pattern_keys as string[]) ?? []
+      (msg.pattern_keys as string[]) ?? [],
+      (msg.description as string) ?? '',
+      (msg.session_id as string) ?? ''
     );
   }
 
@@ -232,8 +235,12 @@ struct ChatPage {
 
   // 检测当前WiFi，返回应该使用的API地址
   // S5：检测逻辑收口到 ApiConfig（原先 ChatPage / FilesPage / FileViewPage 各有一份）
+  // S11 修：这里原先只调 detect()（只设 baseUrl，**不设 apiKey**），导致
+  //   apiConfig.getApiKey() 长期为空 —— 而 S7 的 ApproveService 与各页面的
+  //   rest.configure 都依赖它，结果审批提交的前置校验永远不过、卡片一律走
+  //   「需要先配置密钥」分支。改用 ensureReady(apiKey) 把两件事一起办好。
   private async detectApiUrl(): Promise<string> {
-    const url: string = await apiConfig.detect();
+    const url: string = await apiConfig.ensureReady(this.apiKey);
     this.networkMode = apiConfig.getNetworkMode();   // 同步到 @State 供界面显示
     return url;
   }
@@ -243,6 +250,10 @@ struct ChatPage {
     this.engine = new ChatStreamEngine(systemClock, this.buildStreamCallbacks());
     // 从Preferences加载持久化的API Key
     const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
+    // S11：把 Context 交给审批中心，用于加载/保存审批历史
+    approveService.bind(ctx).catch((e: Error) => {
+      console.info('approve history bind failed: ' + e.message);
+    });
     // 先获取固定设备 ID（用于 sync_pending 匹配离线缓存，重启后不变）
     getOrCreateDeviceId(ctx).then((deviceId: string) => {
       this.deviceId = deviceId;
@@ -459,6 +470,12 @@ struct ChatPage {
             },
             onClose: () => {
               this.showSettings = false;
+            },
+            onHistory: () => {
+              this.showSettings = false;
+              router.pushUrl({ url: 'pages/ApproveHistoryPage' }).catch((e: Error) => {
+                this.showToast('跳转失败：' + e.message);
+              });
             }
           })
         }

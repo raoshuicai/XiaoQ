@@ -32,8 +32,19 @@ export struct ApproveLayer {
   @State reqRunId: string = '';
   @State reqCommand: string = '';
   @State reqPatterns: string[] = [];
+  @State reqDescription: string = '';
+  @State reqSessionId: string = '';
+  @State reqAt: number = 0;
   @State inProgress: boolean = false;
   @State notConfigured: boolean = false;
+
+  /**
+   * S11：这里也要能拿到 apiKey。
+   * 页面启动早期的异步链（读设备ID → 读密钥 → 检测网络）要走几秒，期间
+   * apiConfig 里可能还没有 key；而审批可能恰好在那一刻到达。
+   * 用 @StorageLink 直接读 AppStorage 里的权威值，refresh 时补设一次。
+   */
+  @StorageLink('apiKey') apiKey: string = '';
 
   private unsubscribe: (() => void) | null = null;
 
@@ -60,11 +71,26 @@ export struct ApproveLayer {
       this.reqRunId = req.runId;
       this.reqCommand = req.command;
       this.reqPatterns = req.patterns;
+      this.reqDescription = req.description;
+      this.reqSessionId = req.sessionId;
+      this.reqAt = req.receivedAt;
     } else {
       this.hasRequest = false;
     }
     this.inProgress = approveService.isInProgress();
-    this.notConfigured = apiConfig.getApiKey().length === 0;
+
+    // S11：如果 apiConfig 里还没有 key（启动早期），用 AppStorage 的权威值补一次；
+    // 否则「未配置密钥」引导卡会误报，且 ApproveService.respond() 会直接失败。
+    if (apiConfig.getApiKey().length === 0 && this.apiKey.length > 0) {
+      apiConfig.ensureReady(this.apiKey).then(() => {
+        this.notConfigured = apiConfig.getApiKey().length === 0;
+      }).catch((e: Error) => {
+        console.info('approve layer ensureReady failed: ' + e.message);
+        this.notConfigured = true;
+      });
+    } else {
+      this.notConfigured = apiConfig.getApiKey().length === 0;
+    }
   }
 
   private async choose(choice: string): Promise<void> {
@@ -149,6 +175,9 @@ export struct ApproveLayer {
           ApproveSheet({
             command: this.reqCommand,
             patterns: this.reqPatterns,
+            description: this.reqDescription,
+            sessionId: this.reqSessionId,
+            receivedAt: this.reqAt,
             inProgress: this.inProgress,
             onChoice: (choice: string) => {
               this.choose(choice);
