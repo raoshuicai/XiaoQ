@@ -30,9 +30,12 @@ entry/agc-apiclient-*.json
 *.json
 !oh-package.json5
 !hvigor-config.json5
-!build-profile.json5
+!build-profile.json5.template
 !hvigorfile.ts
 _build.log
+_b_main.log
+_b_test.log
+*.log
 local.properties
 build-deploy.ps1
 oh_modules/
