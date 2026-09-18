@@ -4,6 +4,9 @@ import { FileApi, FileItem, FileListResult } from '../utils/FileApi.ets';
 // S5：网络检测收口到 ApiConfig，REST 客户端收口到 HermesRest
 import { apiConfig } from '../core/ApiConfig.ets';
 import { rest } from '../core/HermesRest.ets';
+// S7：审批全局化 —— 任何页面都能收到审批
+import { ApproveLayer } from '../components/ApproveLayer.ets';
+import { approveService } from '../services/ApproveService.ets';
 
 const NAV_KEY_VAULT: string = 'vault';
 
@@ -24,6 +27,18 @@ struct FilesPage {
   @StorageLink('apiKey') apiKey: string = '';
 
   private fileApi: FileApi = new FileApi();
+
+  /**
+   * S7：登记本页为「审批可展示页」。
+   * 页面栈可能同时存在多个页面，只有前台那个会渲染审批卡片。
+   */
+  onPageShow(): void {
+    approveService.setActivePage('files');
+  }
+
+  onPageHide(): void {
+    approveService.clearActivePage('files');
+  }
 
   aboutToAppear(): void {
     // S5：网络检测收口到 ApiConfig（原先本页有一份与 ChatPage 逐行重复的实现）
@@ -112,137 +127,144 @@ struct FilesPage {
   }
 
   build() {
-    Column() {
-      // 标题栏
-      Row() {
-        Button() {
-          Text('← ' + (this.navStack.length > 1 ? '返回' : '聊天'))
+    Stack() {
+      Column() {
+        // 标题栏
+        Row() {
+          Button() {
+            Text('← ' + (this.navStack.length > 1 ? '返回' : '聊天'))
+              .fontSize(15)
+              .fontColor('#5B5BD6')
+          }
+          .backgroundColor('transparent')
+          .onClick(() => {
+            this.goBack();
+          })
+
+          Blank()
+
+          Text(this.titleText)
+            .fontSize(17)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#1A1A2E')
+
+          Blank()
+
+          // 占位保持对称
+          Text('')
             .fontSize(15)
-            .fontColor('#5B5BD6')
+            .width(60)
         }
-        .backgroundColor('transparent')
-        .onClick(() => {
-          this.goBack();
-        })
+        .width('100%')
+        .padding({ left: 8, right: 16, top: 8, bottom: 8 })
+        .backgroundColor('#F8F9FF')
 
-        Blank()
+        // 面包屑导航
+        if (this.navStack.length > 1) {
+          Scroll() {
+            Row() {
+              ForEach(this.navStack, (nav: NavItem, idx: number) => {
+                Text((idx > 0 ? ' / ' : '') + nav.name)
+                  .fontSize(12)
+                  .fontColor(idx === this.navStack.length - 1 ? '#5B5BD6' : '#999999')
+                  .onClick(() => {
+                    // 点击直接跳转到该层级
+                    while (this.navStack.length > idx + 1) {
+                      this.navStack.pop();
+                    }
+                    this.loadDir(nav.path);
+                  })
+              }, (nav: NavItem, idx: number) => nav.key)
+            }
+            .padding({ left: 16, right: 16, top: 6, bottom: 6 })
+          }
+          .scrollBar(BarState.Off)
+          .height(32)
+          .backgroundColor('#F0F0F5')
+          .width('100%')
+        }
 
-        Text(this.titleText)
-          .fontSize(17)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#1A1A2E')
+        // 文件列表
+        if (this.isLoading) {
+          Column() {
+            LoadingProgress()
+              .width(40)
+              .height(40)
+              .color('#5B5BD6')
+            Text('加载中...')
+              .fontSize(14)
+              .fontColor('#999999')
+              .margin({ top: 12 })
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+        } else if (this.currentItems.length === 0) {
+          Column() {
+            Text('📂')
+              .fontSize(48)
+            Text('这个目录是空的')
+              .fontSize(15)
+              .fontColor('#999999')
+              .margin({ top: 8 })
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+        } else {
+          List() {
+            ForEach(this.currentItems, (item: FileItem) => {
+              ListItem() {
+                Row() {
+                  Text(this.getFileIcon(item))
+                    .fontSize(22)
+                    .margin({ right: 12 })
 
-        Blank()
+                  Column() {
+                    Text(item.name)
+                      .fontSize(15)
+                      .fontColor('#1A1A2E')
+                      .lineHeight(22)
+                    Text(item.type === 'directory' ? '文件夹' : '文件')
+                      .fontSize(11)
+                      .fontColor('#BBBBBB')
+                      .margin({ top: 2 })
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
 
-        // 占位保持对称
-        Text('')
-          .fontSize(15)
-          .width(60)
+                  Text(item.type === 'directory' ? '›' : '')
+                    .fontSize(20)
+                    .fontColor('#CCCCCC')
+                }
+                .width('100%')
+                .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+                .backgroundColor('#FFFFFF')
+                .borderRadius(10)
+                .onClick(() => {
+                  if (item.type === 'directory') {
+                    this.enterDir(item);
+                  } else {
+                    this.openFile(item);
+                  }
+                })
+              }
+            }, (item: FileItem) => item.path)
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .backgroundColor('#F5F5FA')
+          .padding({ top: 8, bottom: 8 })
+        }
       }
       .width('100%')
-      .padding({ left: 8, right: 16, top: 8, bottom: 8 })
-      .backgroundColor('#F8F9FF')
+      .height('100%')
+      .backgroundColor('#F5F5FA')
 
-      // 面包屑导航
-      if (this.navStack.length > 1) {
-        Scroll() {
-          Row() {
-            ForEach(this.navStack, (nav: NavItem, idx: number) => {
-              Text((idx > 0 ? ' / ' : '') + nav.name)
-                .fontSize(12)
-                .fontColor(idx === this.navStack.length - 1 ? '#5B5BD6' : '#999999')
-                .onClick(() => {
-                  // 点击直接跳转到该层级
-                  while (this.navStack.length > idx + 1) {
-                    this.navStack.pop();
-                  }
-                  this.loadDir(nav.path);
-                })
-            }, (nav: NavItem, idx: number) => nav.key)
-          }
-          .padding({ left: 16, right: 16, top: 6, bottom: 6 })
-        }
-        .scrollBar(BarState.Off)
-        .height(32)
-        .backgroundColor('#F0F0F5')
-        .width('100%')
-      }
-
-      // 文件列表
-      if (this.isLoading) {
-        Column() {
-          LoadingProgress()
-            .width(40)
-            .height(40)
-            .color('#5B5BD6')
-          Text('加载中...')
-            .fontSize(14)
-            .fontColor('#999999')
-            .margin({ top: 12 })
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
-      } else if (this.currentItems.length === 0) {
-        Column() {
-          Text('📂')
-            .fontSize(48)
-          Text('这个目录是空的')
-            .fontSize(15)
-            .fontColor('#999999')
-            .margin({ top: 8 })
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
-      } else {
-        List() {
-          ForEach(this.currentItems, (item: FileItem) => {
-            ListItem() {
-              Row() {
-                Text(this.getFileIcon(item))
-                  .fontSize(22)
-                  .margin({ right: 12 })
-
-                Column() {
-                  Text(item.name)
-                    .fontSize(15)
-                    .fontColor('#1A1A2E')
-                    .lineHeight(22)
-                  Text(item.type === 'directory' ? '文件夹' : '文件')
-                    .fontSize(11)
-                    .fontColor('#BBBBBB')
-                    .margin({ top: 2 })
-                }
-                .layoutWeight(1)
-                .alignItems(HorizontalAlign.Start)
-
-                Text(item.type === 'directory' ? '›' : '')
-                  .fontSize(20)
-                  .fontColor('#CCCCCC')
-              }
-              .width('100%')
-              .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-              .backgroundColor('#FFFFFF')
-              .borderRadius(10)
-              .onClick(() => {
-                if (item.type === 'directory') {
-                  this.enterDir(item);
-                } else {
-                  this.openFile(item);
-                }
-              })
-            }
-          }, (item: FileItem) => item.path)
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .backgroundColor('#F5F5FA')
-        .padding({ top: 8, bottom: 8 })
-      }
+      // S7：审批浮层 —— 本页在前台时也能收到审批请求
+      ApproveLayer({ pageName: 'files' })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5FA')
   }
 }

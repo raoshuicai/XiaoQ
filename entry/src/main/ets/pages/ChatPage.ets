@@ -3,8 +3,8 @@ import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { HermesApi } from '../utils/HermesApi.ets';
 import { saveApiKey, loadApiKey, getOrCreateDeviceId } from '../utils/PreferencesHelper.ets';
-// S2：WS 连接与事件分发下沉到 services/，页面只订阅事件
-import { eventBus, Events, Unsubscribe } from '../core/EventBus.ets';
+// S2/S7：WS 事件订阅 + 协议分发下沉到 ChatWsBridge（连接控制仍在 wsService）
+import { chatWsBridge, WsBridgeHooks } from '../services/ChatWsBridge.ets';
 import { wsService } from '../services/WsService.ets';
 // S4：消息持有与持久化下沉到 ChatService
 import { chatService } from '../services/ChatService.ets';
@@ -21,11 +21,13 @@ import { AppHeader } from '../components/AppHeader.ets';
 import { MessageBubble } from '../components/MessageBubble.ets';
 import { StreamingBubble } from '../components/StreamingBubble.ets';
 import { InputBar } from '../components/InputBar.ets';
-import { ApproveSheet } from '../components/ApproveSheet.ets';
+import { ApproveLayer } from '../components/ApproveLayer.ets';
 import { SettingsPanel } from '../components/SettingsPanel.ets';
+// S7：审批全局化
+import { approveService } from '../services/ApproveService.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.0.15';
+const APP_VERSION: string = '2.1.0';
 
 @Entry
 @Component
@@ -39,16 +41,12 @@ struct ChatPage {
   @StorageLink('apiKey') apiKey: string = '';
   @State tempApiKey: string = '';
   @State networkMode: string = '检测中...';
-  @State showDialog: boolean = false;
-  @State approveRunId: string = '';
-  @State approveCommand: string = '';
-  @State approvePatterns: string[] = [];
-  @State approveInProgress: boolean = false;
+  // S7：审批状态（showDialog/approveRunId/approveCommand/approvePatterns/
+  // approveInProgress）全部移入 services/ApproveService.ets
   @State deleteMsgIndex: number = -1;
 
   private hermesApi: HermesApi = new HermesApi('', '');
   private deviceId: string = '';                                       // S2：设备ID（原 wsClient.clientId）
-  private unsubs: Unsubscribe[] = [];                                  // S2：事件订阅注销句柄，必须集中管理
   private engine: ChatStreamEngine | null = null;   // S3：流式状态机
   private pageVisible: boolean = true;
   private listScroller: Scroller = new Scroller();
@@ -119,94 +117,27 @@ struct ChatPage {
    * 处理逻辑（token 累积 / seq / 计时器 / 占位符）暂时留在本页，S3 搬进 ChatStreamEngine。
    */
   private setupWebSocket(baseUrl: string): void {
-    this.teardownSubscriptions();
+    // S7：9 个事件订阅 + 8 个协议处理方法全部收归 ChatWsBridge
+    const hooks: WsBridgeHooks = new WsBridgeHooks();
+    hooks.onNotification = (msg: WsMessage): void => {
+      // 显示 Toast 同时，也插入到聊天框作为消息记录
+      this.showToast(msg.body as string);
+      chatService.append('assistant',
+        '📬 ' + (msg.title !== undefined ? msg.title + '：' : '') + (msg.body as string));
+      this.syncMessages();
+    };
+    hooks.onApprove = (msg: WsMessage): void => {
+      this.handleApproveRequest(msg);
+    };
 
-    // 连接由 WsService 持有；心跳/重连/待发队列仍在 WebSocketClient 内部
-    wsService.connect(baseUrl, this.deviceId);
-
-    this.unsubs.push(eventBus.on(Events.APPROVE_REQUEST,
-      (m: WsMessage): void => { this.handleApproveRequest(m); }));
-    this.unsubs.push(eventBus.on(Events.CHAT_SYNC_PENDING,
-      (m: WsMessage): void => { this.onSyncPendingMsg(m); }));
-    this.unsubs.push(eventBus.on(Events.CHAT_SYNC_RESUME,
-      (m: WsMessage): void => { this.onSyncResumeMsg(m); }));
-    this.unsubs.push(eventBus.on(Events.NOTIFICATION,
-      (m: WsMessage): void => { this.onNotificationMsg(m); }));
-    this.unsubs.push(eventBus.on(Events.CHAT_TOKEN,
-      (m: WsMessage): void => { this.onChatTokenMsg(m); }));
-    this.unsubs.push(eventBus.on(Events.CHAT_DONE,
-      (m: WsMessage): void => { this.onChatDoneMsg(m); }));
-    this.unsubs.push(eventBus.on(Events.CHAT_ERROR,
-      (m: WsMessage): void => { this.onChatErrorMsg(m); }));
-    this.unsubs.push(eventBus.on(Events.WS_CONNECTED,
-      (): void => { this.onWsConnected(); }));
-    this.unsubs.push(eventBus.on(Events.WS_DISCONNECTED,
-      (): void => { this.onWsDisconnected(); }));
+    // engine 用 getter 传：它由 aboutToAppear 创建，可能晚于本次 connect
+    chatWsBridge.connect(baseUrl, this.deviceId,
+      (): ChatStreamEngine | null => this.engine, hooks);
   }
 
   /** 注销全部事件订阅（重复订阅会让同一条消息被处理多次） */
   private teardownSubscriptions(): void {
-    for (let i: number = 0; i < this.unsubs.length; i++) {
-      this.unsubs[i]();
-    }
-    this.unsubs = [];
-  }
-
-  // ────────────────────────────────────────────────────────────
-  // 以下 8 个方法由 S2 从原 setupWebSocket 的回调里原样抽出，
-  // 处理逻辑一字未改。S3 会把它们整体搬进 core/ChatStreamEngine.ets。
-  // ────────────────────────────────────────────────────────────
-
-  /** sync_pending_response：服务端补发了离线缓存内容 */
-  private onSyncPendingMsg(msg: WsMessage): void {
-    const content: string = msg.content ?? '';
-    if (content.length > 0) {
-      this.showToast('✨ 离线数据同步成功！');
-    }
-    // 内容为空 → 服务器还没准备好，engine 的 retry timer 会继续重试
-    this.engine?.handleSyncPending(content);
-  }
-
-  /** sync_resume：服务端通知流已恢复，后续 token 会实时推送 */
-  private onSyncResumeMsg(msg: WsMessage): void {
-    this.engine?.handleSyncResume(msg.caught_up ?? 0);
-  }
-
-  /** notification：服务端推送通知 */
-  private onNotificationMsg(msg: WsMessage): void {
-    // 显示Toast同时，也插入到聊天框作为消息记录
-    this.showToast(msg.body as string);
-    chatService.append('assistant',
-      '📬 ' + (msg.title !== undefined ? msg.title + '：' : '') + (msg.body as string));
-    this.syncMessages();
-  }
-
-  /** chat_token：流式 token 到达 */
-  private onChatTokenMsg(msg: WsMessage): void {
-    if (msg.content === undefined) {
-      return;
-    }
-    this.engine?.handleToken(msg.content, msg.seq, msg.session_id ?? '');
-  }
-
-  /** chat_done：流式完成（落库与 UI 复位在 onCompletion 回调里）*/
-  private onChatDoneMsg(msg: WsMessage): void {
-    this.engine?.handleDone();
-  }
-
-  /** chat_error：流式失败（UI 展示在 onFailure 回调里）*/
-  private onChatErrorMsg(msg: WsMessage): void {
-    this.engine?.handleError(msg.message !== undefined ? msg.message : '流式回复失败');
-  }
-
-  /** WS 连上：交给 engine 判断是否需要续流 */
-  private onWsConnected(): void {
-    this.engine?.handleConnected();
-  }
-
-  /** WS 断开：交给 engine 决定是否插恢复占位符 */
-  private onWsDisconnected(): void {
-    this.engine?.handleDisconnected();
+    chatWsBridge.teardown();
   }
 
   // ────────────────────────────────────────────────────────────
@@ -262,55 +193,24 @@ struct ChatPage {
   }
 
   private handleApproveRequest(msg: WsMessage): void {
-    // 检测新旧格式：新格式有 run_id，旧格式有 id
-    if (msg.run_id !== undefined) {
-      // 新格式：通过 Hermes API 授权
-      this.approveRunId = msg.run_id as string;
-      this.approveCommand = msg.command as string ?? '';
-      this.approvePatterns = (msg.pattern_keys as string[]) ?? [];
-      this.showSettings = false;
-      this.showDialog = true;
-      this.approveInProgress = false;
-    } else {
-      // 旧格式：通过 WebSocket 回复
-      const reqId: string = msg.id as string;
-      const reqTitle: string = msg.title as string;
-      const reqDesc: string = msg.description as string;
-      const reqDetails: Object[] = (msg.details as Object[]) ?? [];
-      const reqRequester: string = msg.requester as string;
-
-      // 旧格式用 promptAction 弹窗
-      const respond = (approved: boolean): void => {
-        const resp: WsMessage = {
-          type: 'approve_response',
-          id: reqId,
-          approved: approved,
-          timestamp: Date.now()
-        };
-        wsService.send(resp);
-        this.showDialog = false;
-        const result: string = approved ? '✅ 已授权' : '❌ 已拒绝';
-        chatService.append('assistant', result);
-        this.syncMessages();
-      };
-
-      promptAction.showDialog({
-        title: '🔐 ' + reqTitle,
-        message: reqDesc + '\n\n' + reqDetails.join('\n'),
-        buttons: [
-          { text: '拒绝', color: '#FF4444' },
-          { text: '同意', color: '#5B5BD6' }
-        ]
-      }).then((result) => {
-        respond(result.index === 1);
-      });
+    // S7：统一交给全局审批中心。
+    // 旧格式（只带 id 的 WS 直回）已随服务端升级废弃，此处不再保留分支。
+    if (msg.run_id === undefined) {
+      return;
     }
+    approveService.push(
+      msg.run_id as string,
+      (msg.command as string) ?? '',
+      (msg.pattern_keys as string[]) ?? []
+    );
   }
 
-  private async respondApprove(choice: string): Promise<void> {
-    this.approveInProgress = true;
-    try {
-      await this.hermesApi.approveRun(this.approveRunId, choice);
+  /**
+   * S7：审批提交已收归 ApproveService，本页只负责把结果写进对话流。
+   * （原先这里是 respondApprove，自己持有 approveRunId 并直接调 API）
+   */
+  private onApproveResult(ok: boolean, choice: string): void {
+    if (ok) {
       const labels: Record<string, string> = {
         'once': '仅本次放行',
         'session': '本次会话放行',
@@ -319,15 +219,11 @@ struct ChatPage {
       };
       const label: string = labels[choice] ?? choice;
       chatService.append('assistant', '✅ 已响应授权：' + label);
-      this.syncMessages();
-    } catch (error) {
+    } else {
       chatService.append('assistant',
-        '❌ 授权请求失败：' + (error instanceof Error ? (error as Error).message : String(error)));
-      this.syncMessages();
-    } finally {
-      this.showDialog = false;
-      this.approveInProgress = false;
+        '❌ 授权提交失败：请检查 API 密钥与网络后重试');
     }
+    this.syncMessages();
   }
 
   // 检测当前WiFi，返回应该使用的API地址
@@ -394,6 +290,8 @@ struct ChatPage {
    */
   onPageShow(): void {
     this.pageVisible = true;
+    // S7：登记本页为「审批可展示页」——只有前台页面会渲染审批卡片
+    approveService.setActivePage('chat');
     // device_id 未就绪时不连接（等 aboutToAppear 的异步链），避免 pending 垃圾连接 + 连接抖动
     if (this.deviceId === '') {
       return;
@@ -412,6 +310,8 @@ struct ChatPage {
    */
   onPageHide(): void {
     this.pageVisible = false;
+    // S7：退出前台后不再渲染审批卡片（交给下一个前台页面）
+    approveService.clearActivePage('chat');
   }
 
   private async saveSettings(): Promise<void> {
@@ -426,7 +326,6 @@ struct ChatPage {
     wsService.close();
     this.setupWebSocket(detectedUrl);
     this.showSettings = false;
-    this.showDialog = false;
 
     if (this.apiKey !== '') {
       chatService.append('assistant',
@@ -480,7 +379,6 @@ struct ChatPage {
           onSettings: () => {
             this.tempApiKey = this.apiKey;
             this.showSettings = true;
-            this.showDialog = true;
           }
         })
 
@@ -533,7 +431,6 @@ struct ChatPage {
             },
             onClose: () => {
               this.showSettings = false;
-              this.showDialog = false;
             }
           })
         }
@@ -542,21 +439,18 @@ struct ChatPage {
       .height('100%')
       .backgroundColor('#F8F9FF')
 
-      // 授权卡片覆盖层——直接用 Stack 渲染，不用 bindContentCover
-      // （S6：抽为 ApproveSheet 组件）
-      if (this.showDialog && !this.showSettings) {
-        ApproveSheet({
-          command: this.approveCommand,
-          patterns: this.approvePatterns,
-          inProgress: this.approveInProgress,
-          onChoice: (choice: string) => {
-            this.respondApprove(choice);
-          },
-          onDismiss: () => {
-            this.showDialog = false;
-          }
-        })
-      }
+      // S7：审批浮层改为全局组件（由 ApproveService 驱动）
+      // 只有本页在前台时才渲染，且同一时刻只可能有一张卡片
+      ApproveLayer({
+        pageName: 'chat',
+        onGoSettings: () => {
+          this.tempApiKey = this.apiKey;
+          this.showSettings = true;
+        },
+        onResult: (ok: boolean, choice: string) => {
+          this.onApproveResult(ok, choice);
+        }
+      })
     }
     .width('100%')
     .height('100%')
