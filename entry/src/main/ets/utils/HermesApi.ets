@@ -1,5 +1,16 @@
-import { rcp } from '@kit.RemoteCommunicationKit';
+/**
+ * HermesApi —— Hermes Gateway 接口封装
+ *
+ * S5 改动：rcp session / 认证头 / 错误处理全部收归 core/HermesRest，
+ * 本类只保留业务语义（聊天补全的响应解析、审批路径拼装）。
+ *
+ * ⚠️ 路径提醒（施工时最容易搞混的一处）：
+ *   - 聊天补全：POST /v1/chat/completions
+ *   - 审批响应：POST /v1/runs/{runId}/approval   ← 不是 chat/completions
+ */
+
 import { ChatMessage } from '../models/ChatModels.ets';
+import { rest } from '../core/HermesRest.ets';
 
 class HermesError extends Error {
   constructor(message: string) {
@@ -8,71 +19,28 @@ class HermesError extends Error {
 }
 
 export class HermesApi {
-  private baseUrl: string = '';
-  private apiKey: string = '';
   private sessionId: string = '';
-  private session: rcp.Session | null = null;
 
   constructor(baseUrl: string, apiKey: string) {
-    this.baseUrl = baseUrl;
-    this.apiKey = apiKey;
     this.sessionId = 'harmony-' + Date.now().toString() + '-' + Math.random().toString(36).substring(2, 10);
-    this.createSession();
+    rest.configure(baseUrl, apiKey);
   }
 
   public updateConfig(baseUrl: string, apiKey: string): void {
-    this.baseUrl = baseUrl;
-    this.apiKey = apiKey;
-    this.closeSession();
-    this.createSession();
+    rest.configure(baseUrl, apiKey);
   }
 
-  private createSession(): void {
-    try {
-      const config: rcp.SessionConfiguration = {
-        baseAddress: this.baseUrl.replace(/\/+$/, ''),
-        requestConfiguration: {
-          transfer: {
-            autoRedirect: true,
-            timeout: {
-              connectMs: 15000,
-              transferMs: 120000
-            }
-          }
-        }
-      };
-      this.session = rcp.createSession(config);
-    } catch (error) {
-      console.error('createSession failed');
-      this.session = null;
-    }
-  }
-
-  private closeSession(): void {
-    if (this.session !== null) {
-      try {
-        this.session.close();
-      } catch (error) {
-        // ignore close errors
-      }
-      this.session = null;
-    }
-  }
-
+  /** session 由全局 rest 持有，这里保留空实现以兼容既有调用点 */
   public destroy(): void {
-    this.closeSession();
   }
 
+  /**
+   * 非流式聊天补全（当前链路实际走 WebSocket 流式；
+   * 本方法保留给"一次性问答"类调用）。
+   */
   public async sendMessage(messageList: ChatMessage[]): Promise<string> {
-    if (this.baseUrl === '' || this.apiKey === '') {
+    if (!rest.isConfigured()) {
       throw new HermesError('请在设置中配置API地址和密钥');
-    }
-
-    if (this.session === null) {
-      this.createSession();
-      if (this.session === null) {
-        throw new HermesError('创建网络连接失败');
-      }
     }
 
     const bodyObj: Record<string, Object> = {
@@ -80,88 +48,47 @@ export class HermesApi {
       'stream': false,
       'messages': messageList
     };
+    const extraHeaders: Record<string, string> = {
+      'X-Hermes-Session-Id': this.sessionId
+    };
 
     try {
-      const requestHeaders: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + this.apiKey,
-        'X-Hermes-Session-Id': this.sessionId
-      };
+      const result: Record<string, Object> = await rest.post(
+        '/v1/chat/completions', bodyObj, extraHeaders) as Record<string, Object>;
 
-      const request: rcp.Request = new rcp.Request(
-        '/v1/chat/completions',
-        'POST',
-        requestHeaders,
-        bodyObj
-      );
-
-      const response: rcp.Response = await this.session.fetch(request);
-      const statusCode: number = response.statusCode;
-
-      if (statusCode === 200) {
-        const result: Record<string, Object> = response.toJSON() as Record<string, Object>;
-        const choices: Object[] = result['choices'] as Object[];
-        if (choices.length > 0) {
-          const choiceObj: Record<string, Object> = choices[0] as Record<string, Object>;
-          const messageObj: Record<string, Object> = choiceObj['message'] as Record<string, Object>;
-          const content: string = messageObj['content'] as string;
-          if (content !== undefined) {
-            return content;
-          }
+      const choices: Object[] = result['choices'] as Object[];
+      if (choices !== undefined && choices.length > 0) {
+        const choiceObj: Record<string, Object> = choices[0] as Record<string, Object>;
+        const messageObj: Record<string, Object> = choiceObj['message'] as Record<string, Object>;
+        const content: string = messageObj['content'] as string;
+        if (content !== undefined) {
+          return content;
         }
-        return '收到回复，但解析失败';
       }
-      const errorText: string = response.toString() ?? '请求失败';
-      throw new HermesError('HTTP ' + statusCode + ': ' + errorText);
+      return '收到回复，但解析失败';
     } catch (error) {
-      if (error instanceof HermesError) {
-        throw error;
-      }
-      if (error instanceof Error) {
-        throw new HermesError((error as Error).message);
-      }
-      throw new HermesError('未知网络错误');
+      throw new HermesError(error instanceof Error ? (error as Error).message : String(error));
     }
   }
 
   /**
-   * 对 Hermes 运行授权请求做出响应
+   * 对 Hermes 运行授权请求做出响应。
+   * ⚠️ 用 postOnce（不重试）—— 审批是有副作用的提交，重试可能造成重复响应。
    */
   public async approveRun(runId: string, approval: string): Promise<void> {
-    if (this.baseUrl === '' || this.apiKey === '') {
+    if (!rest.isConfigured()) {
       throw new HermesError('未配置API地址或密钥');
     }
-    if (this.session === null) {
-      this.createSession();
-      if (this.session === null) {
-        throw new HermesError('创建网络连接失败');
-      }
-    }
+
+    const bodyObj: Record<string, Object> = {
+      'approval': approval
+    };
 
     try {
-      const requestHeaders: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + this.apiKey
-      };
-      const bodyObj: Record<string, Object> = {
-        'approval': approval
-      };
-      const request: rcp.Request = new rcp.Request(
-        '/v1/runs/' + encodeURIComponent(runId) + '/approval',
-        'POST',
-        requestHeaders,
-        bodyObj
-      );
-      const response: rcp.Response = await this.session.fetch(request);
-      if (response.statusCode !== 200) {
-        console.error('approveRun failed: HTTP ' + response.statusCode);
-      }
+      await rest.postOnce('/v1/runs/' + encodeURIComponent(runId) + '/approval', bodyObj);
     } catch (error) {
-      console.error('approveRun error: ' + error);
-      if (error instanceof HermesError) {
-        throw error;
-      }
-      throw new HermesError(String(error));
+      console.error('approveRun failed: ' + error);
+      throw new HermesError(error instanceof Error ? (error as Error).message : String(error));
     }
   }
 }

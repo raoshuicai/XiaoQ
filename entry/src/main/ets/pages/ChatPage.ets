@@ -1,6 +1,5 @@
 import { promptAction } from '@kit.ArkUI';
 import { router } from '@kit.ArkUI';
-import { wifiManager } from '@kit.ConnectivityKit';
 import { common } from '@kit.AbilityKit';
 import { HermesApi } from '../utils/HermesApi.ets';
 import { saveApiKey, loadApiKey, getOrCreateDeviceId } from '../utils/PreferencesHelper.ets';
@@ -15,14 +14,11 @@ import { systemClock } from '../core/Timers.ets';
 // S1：所有共享类型统一从 models 层引入（HermesApi/PreferencesHelper/WebSocketClient 不再自行定义）
 import { ChatMessage, ChatRecord } from '../models/ChatModels.ets';
 import { WsMessage } from '../models/WsModels.ets';
-
-// 家里WiFi配置
-const HOME_WIFI_SSID: string = 'HUAWEI-404';
-const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
-const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
+// S5：网络检测收口到 ApiConfig
+import { apiConfig } from '../core/ApiConfig.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.0.12';
+const APP_VERSION: string = '2.0.13';
 
 @Entry
 @Component
@@ -328,21 +324,11 @@ struct ChatPage {
   }
 
   // 检测当前WiFi，返回应该使用的API地址
+  // S5：检测逻辑收口到 ApiConfig（原先 ChatPage / FilesPage / FileViewPage 各有一份）
   private async detectApiUrl(): Promise<string> {
-    try {
-      const linkedInfo: wifiManager.WifiLinkedInfo = await wifiManager.getLinkedInfo();
-      const currentSsid: string = linkedInfo.ssid;
-      if (currentSsid === HOME_WIFI_SSID) {
-        this.networkMode = '🏠 本地网络';
-        return LOCAL_API_URL;
-      }
-      this.networkMode = '🌐 公网 (' + currentSsid + ')';
-      return PUBLIC_API_URL;
-    } catch (error) {
-      // 没有WiFi连接或获取失败，走公网
-      this.networkMode = '🌐 公网';
-      return PUBLIC_API_URL;
-    }
+    const url: string = await apiConfig.detect();
+    this.networkMode = apiConfig.getNetworkMode();   // 同步到 @State 供界面显示
+    return url;
   }
 
   aboutToAppear(): void {
