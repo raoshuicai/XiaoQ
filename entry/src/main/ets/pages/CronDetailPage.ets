@@ -35,6 +35,7 @@ struct CronDetailPage {
   @State editing: boolean = false;
   @State editName: string = '';
   @State editSchedule: string = '';
+  @State editPrompt: string = '';
   @State saving: boolean = false;
 
   /** 展开的历史输出 */
@@ -70,6 +71,7 @@ struct CronDetailPage {
       this.detail = d;
       this.editName = d.name;
       this.editSchedule = d.scheduleExpr.length > 0 ? d.scheduleExpr : d.schedule;
+      this.editPrompt = d.prompt;
       this.outputs = await cronService.fetchOutputs(this.jobId);
       this.loading = false;
     } catch (e) {
@@ -84,7 +86,8 @@ struct CronDetailPage {
     }
     this.saving = true;
     try {
-      const d: CronJobDetail = await cronService.update(this.jobId, this.editName, this.editSchedule);
+      const d: CronJobDetail = await cronService.update(
+        this.jobId, this.editName, this.editSchedule, this.editPrompt);
       this.detail = d;
       this.editing = false;
       this.showToast('已保存');
@@ -95,6 +98,8 @@ struct CronDetailPage {
         this.showToast('调度表达式不合法，请检查格式');
       } else if (t.indexOf('NAME_EMPTY') >= 0) {
         this.showToast('名称不能为空');
+      } else if (t.indexOf('PROMPT_TOO_LONG') >= 0) {
+        this.showToast('提示词过长（上限 50000 字）');
       } else {
         this.showToast('保存失败：' + t);
       }
@@ -243,6 +248,7 @@ struct CronDetailPage {
               this.editName = this.detail.name;
               this.editSchedule = this.detail.scheduleExpr.length > 0
                 ? this.detail.scheduleExpr : this.detail.schedule;
+              this.editPrompt = this.detail.prompt;
             } else {
               this.editing = true;
             }
@@ -336,6 +342,43 @@ struct CronDetailPage {
                     .width('100%')
                     .lineHeight(16)
                     .margin({ top: 8 })
+
+                  // ── prompt（只对 Agent 类型有意义）──
+                  if (!this.detail.noAgent) {
+                    Row() {
+                      Text('提示词（Prompt）')
+                        .fontSize(12).fontColor('#888888')
+                      Blank()
+                      Text(this.editPrompt.length + ' 字')
+                        .fontSize(11).fontColor('#BBBBBB')
+                    }
+                    .width('100%')
+                    .margin({ top: 14, bottom: 4 })
+
+                    TextArea({ text: this.editPrompt, placeholder: '这个任务每次运行时给 Agent 的指令' })
+                      .width('100%')
+                      .height(200)
+                      .backgroundColor('#F5F5FA')
+                      .borderRadius(10)
+                      .padding(12)
+                      .fontSize(12)
+                      .onChange((v: string) => {
+                        this.editPrompt = v;
+                      })
+
+                    Text('⚠️ 提示词决定任务每次执行做什么，改前请确认内容。留空表示不修改。')
+                      .fontSize(11)
+                      .fontColor('#C77A20')
+                      .width('100%')
+                      .lineHeight(16)
+                      .margin({ top: 6 })
+                  } else {
+                    Text('该任务是脚本类型，直接执行 ' + this.detail.script + '，没有提示词。')
+                      .fontSize(11)
+                      .fontColor('#AAAAAA')
+                      .width('100%')
+                      .margin({ top: 10 })
+                  }
 
                   Button() {
                     Text(this.saving ? '保存中…' : '保存')

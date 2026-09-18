@@ -94,20 +94,23 @@ export class CronService {
   }
 
   /**
-   * 编辑任务（只放开 name / schedule）。
+   * 编辑任务（放开 name / schedule / prompt）。
    *
-   * ⚠️ 走 postOnce：这是写操作，重试可能造成重复更新。
-   * ⚠️ 服务端只接受 name / schedule 两个字段，其余字段（prompt、script、
-   *    no_agent 等）改动面大，继续在 Hermes 侧用 CLI 改更稳妥。
-   * ⚠️ 非法 schedule 表达式服务端会返 400 INVALID_SCHEDULE（含支持的格式说明）。
+   * ⚠️ 走 postOnce：写操作，重试可能造成重复更新。
+   * ⚠️ 空字符串表示「该字段不改」（服务端只处理出现的字段）。
+   * ⚠️ 服务端仍挡住 script / no_agent —— 改了会让任务性质完全变样。
    */
-  public async update(id: string, name: string, schedule: string): Promise<CronJobDetail> {
+  public async update(id: string, name: string, schedule: string, prompt: string): Promise<CronJobDetail> {
     const body: Record<string, Object> = {};
     if (name.length > 0) {
       body['name'] = name;
     }
     if (schedule.length > 0) {
       body['schedule'] = schedule;
+    }
+    // prompt 允许被改，但空串按「不改」处理（清空 prompt 不是常见诉求）
+    if (prompt.length > 0) {
+      body['prompt'] = prompt;
     }
     const raw: Record<string, Object> = await rest.postOnce(
       '/api/cron/jobs/' + encodeURIComponent(id) + '/update', body

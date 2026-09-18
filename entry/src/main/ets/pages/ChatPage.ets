@@ -29,7 +29,7 @@ import { approveService } from '../services/ApproveService.ets';
 import { notifyService } from '../services/NotifyService.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.4.3';
+const APP_VERSION: string = '2.4.4';
 
 @Entry
 @Component
