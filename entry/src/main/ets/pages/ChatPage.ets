@@ -7,6 +7,9 @@ import { saveApiKey, loadApiKey, saveMessages, loadMessages, getOrCreateDeviceId
 // S2：WS 连接与事件分发下沉到 services/，页面只订阅事件
 import { eventBus, Events, Unsubscribe } from '../core/EventBus.ets';
 import { wsService } from '../services/WsService.ets';
+// S3：流式状态机下沉到 core/
+import { ChatStreamEngine, StreamCallbacks } from '../core/ChatStreamEngine.ets';
+import { systemClock } from '../core/Timers.ets';
 // S1：所有共享类型统一从 models 层引入（HermesApi/PreferencesHelper/WebSocketClient 不再自行定义）
 import { ChatMessage, ChatRecord, StoredMessage } from '../models/ChatModels.ets';
 import { WsMessage } from '../models/WsModels.ets';
@@ -17,7 +20,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.0.10';
+const APP_VERSION: string = '2.0.11';
 
 @Entry
 @Component
@@ -41,14 +44,9 @@ struct ChatPage {
   private hermesApi: HermesApi = new HermesApi('', '');
   private deviceId: string = '';                                       // S2：设备ID（原 wsClient.clientId）
   private unsubs: Unsubscribe[] = [];                                  // S2：事件订阅注销句柄，必须集中管理
+  private engine: ChatStreamEngine | null = null;   // S3：流式状态机（原 lastStreamSeq/syncRetryTimer/streamResumeTimeout/streamStallTimer/disconnectTimeout 已移除，disconnectTimeout 本就是无赋值点的死变量）
   private saveTimer: number | undefined = undefined;
   private pageVisible: boolean = true;
-  private disconnectTimeout: number | undefined = undefined;
-  private lastStreamSeq: number = -1;
-  private syncRetryTimer: number | undefined = undefined;
-  private syncRetryCount: number = 0;
-  private streamResumeTimeout: number | undefined = undefined;  // 方案D：30秒超时后重启retry
-  private streamStallTimer: number | undefined = undefined;     // Batch 3：流式回复停顿时自动请求 sync_pending
   private listScroller: Scroller = new Scroller();
 
   private showToast(message: string): void {
@@ -98,42 +96,8 @@ struct ChatPage {
     return false;
   }
 
-  // 检查消息列表中是否存在恢复提示
-  private hasIndicator(): boolean {
-    for (let i: number = this.messageList.length - 1; i >= 0; i--) {
-      if (this.messageList[i].content.startsWith('⏳ 正在恢复连接...')) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // sync_pending 重试循环（服务器可能还在处理中）
-  // force: 方案D超时兜底，跳过 hasIndicator 检查
-  private startSyncRetry(force: boolean = false): void {
-    this.stopSyncRetry();
-    this.syncRetryCount = 0;
-    this.syncRetryTimer = setInterval(() => {
-      this.syncRetryCount++;
-      // 每5秒重试一次，最多60秒
-      if (this.syncRetryCount > 12 || (!force && !this.hasIndicator())) {
-        this.stopSyncRetry();
-        return;
-      }
-      wsService.send({
-        type: 'sync_pending',
-        session_id: this.deviceId,
-        last_seq: this.lastStreamSeq
-      });
-    }, 5000);
-  }
-
-  private stopSyncRetry(): void {
-    if (this.syncRetryTimer !== undefined) {
-      clearInterval(this.syncRetryTimer);
-      this.syncRetryTimer = undefined;
-    }
-  }
+  // S3：hasIndicator / startSyncRetry / stopSyncRetry 已移入 ChatStreamEngine。
+  // engine 内部用 pendingIndicator 标志代替"遍历 messageList 找占位符"的判断。
 
   private scheduleSaveMessages(): void {
     if (this.saveTimer !== undefined) {
@@ -202,38 +166,15 @@ struct ChatPage {
   private onSyncPendingMsg(msg: WsMessage): void {
     const content: string = msg.content ?? '';
     if (content.length > 0) {
-      // 旧格式：完整回复（来自 offline_chats 缓存）
-      this.replaceIndicator(content);
       this.showToast('✨ 离线数据同步成功！');
     }
-    // 内容为空 → 服务器还没准备好，retry timer 会继续重试
+    // 内容为空 → 服务器还没准备好，engine 的 retry timer 会继续重试
+    this.engine?.handleSyncPending(content);
   }
 
   /** sync_resume：服务端通知流已恢复，后续 token 会实时推送 */
   private onSyncResumeMsg(msg: WsMessage): void {
-    // 方案三：服务器通知流已恢复，后续 token 将实时推送
-    console.info('sync_resume: stream resumed, caught_up=' + (msg.caught_up ?? 0));
-    // 如果有已累积的 streamContent，替换掉恢复提示
-    if (this.streamContent.length > 0) {
-      this.replaceIndicator(this.streamContent);
-    }
-    this.isStreaming = true; // 让 StreamingBubble 显示
-    // 方案D：设30秒超时守卫生，超时后未收到chat_done则重启retry轮询
-    if (this.streamResumeTimeout !== undefined) {
-      clearTimeout(this.streamResumeTimeout);
-    }
-    this.streamResumeTimeout = setTimeout(() => {
-      if (this.isStreaming) {
-        console.info('streamResumeTimeout: no chat_done after 30s, starting forced retry');
-        this.startSyncRetry(true);
-      }
-      this.streamResumeTimeout = undefined;
-    }, 30000);
-    // 清除断线超时
-    if (this.disconnectTimeout !== undefined) {
-      clearTimeout(this.disconnectTimeout);
-      this.disconnectTimeout = undefined;
-    }
+    this.engine?.handleSyncResume(msg.caught_up ?? 0);
   }
 
   /** notification：服务端推送通知 */
@@ -253,102 +194,69 @@ struct ChatPage {
     if (msg.content === undefined) {
       return;
     }
-    // 记录最后收到的 seq（支持断点续流）
-    if (msg.seq !== undefined) {
-      this.lastStreamSeq = msg.seq as number;
-    }
-    // 收到第一个 token 即停止 sync 重试（避免 retry 再发一次 sync 导致重复回复）
-    if (this.hasIndicator()) {
-      this.stopSyncRetry();
-    }
-    // Batch 3：收到 token 即清除停滞超时（流正常进行）
-    if (this.streamStallTimer !== undefined) {
-      clearTimeout(this.streamStallTimer);
-      this.streamStallTimer = undefined;
-    }
-    // 流式回复：过滤"思考中。。"占位符，防止泄漏到最终答复
-    const token: string = msg.content;
-    if (this.streamContent.length === 0 && (token === '思考中。。' || token.startsWith('思考中。。'))) {
-      // 首个token如果是占位符文字，跳过
-    } else {
-      this.streamContent += token;
-      this.streamContent = this.streamContent; // 触发 @State 更新
-    }
+    this.engine?.handleToken(msg.content, msg.seq, msg.session_id ?? '');
   }
 
-  /** chat_done：流式完成，落库 */
+  /** chat_done：流式完成（落库与 UI 复位在 onCompletion 回调里）*/
   private onChatDoneMsg(msg: WsMessage): void {
-    // 流式回复完成：将流消息添加到历史记录
-    if (this.streamContent.length > 0) {
-      const doneMsg: ChatMessage = { role: 'assistant', content: this.streamContent };
-      // 替换掉恢复提示（如果存在），只有没替换时才追加
-      if (!this.replaceIndicator(this.streamContent)) {
-        this.messageList.push(doneMsg);
-      }
-      this.scheduleSaveMessages();
-      this.scrollToBottom();
-    }
-    this.streamContent = '';
-    this.isStreaming = false;
-    this.isLoading = false;
-    this.lastStreamSeq = -1;
-    this.stopSyncRetry();
-    if (this.streamStallTimer !== undefined) {
-      clearTimeout(this.streamStallTimer);
-      this.streamStallTimer = undefined;
-    }
-    if (this.disconnectTimeout !== undefined) {
-      clearTimeout(this.disconnectTimeout);
-      this.disconnectTimeout = undefined;
-    }
-    if (this.streamResumeTimeout !== undefined) {
-      clearTimeout(this.streamResumeTimeout);
-      this.streamResumeTimeout = undefined;
-    }
+    this.engine?.handleDone();
   }
 
-  /** chat_error：流式失败 */
+  /** chat_error：流式失败（UI 展示在 onFailure 回调里）*/
   private onChatErrorMsg(msg: WsMessage): void {
-    this.isStreaming = false;
-    this.isLoading = false;
-    if (this.streamStallTimer !== undefined) {
-      clearTimeout(this.streamStallTimer);
-      this.streamStallTimer = undefined;
-    }
-    if (this.streamResumeTimeout !== undefined) {
-      clearTimeout(this.streamResumeTimeout);
-      this.streamResumeTimeout = undefined;
-    }
-    const errMsg: string = (msg.message !== undefined) ? msg.message : '流式回复失败';
-    const errChatMsg: ChatMessage = {
-      role: 'assistant',
-      content: '❌ 出错了：' + errMsg + '\n\n当前网络：' + this.networkMode
-    };
-    this.messageList.push(errChatMsg);
-    this.scheduleSaveMessages();
-    this.streamContent = '';
+    this.engine?.handleError(msg.message !== undefined ? msg.message : '流式回复失败');
   }
 
-  /** WS 连上：若存在未恢复的流，主动请求续流 */
+  /** WS 连上：交给 engine 判断是否需要续流 */
   private onWsConnected(): void {
-    console.info('WS connected');
-    // 只对"流中断未恢复"的会话发送同步请求（避免已完成流重复回放）
-    if (this.hasIndicator()) {
-      wsService.send({
-        type: 'sync_pending',
-        session_id: this.deviceId,
-        last_seq: this.lastStreamSeq
-      });
-      this.startSyncRetry();
-    }
+    this.engine?.handleConnected();
   }
 
-  /** WS 断开：流式进行中则插恢复占位符（已存在则不重复插） */
+  /** WS 断开：交给 engine 决定是否插恢复占位符 */
   private onWsDisconnected(): void {
-    console.info('WS disconnected');
-    // 如果流式回复进行中断线（!hasIndicator() 避免每次重连失败都重复插一条占位符）
-    if (this.isStreaming && !this.hasIndicator()) {
-      // 方案三：保持 isStreaming 状态，不清除 streamContent，以便重连后断点续流
+    this.engine?.handleDisconnected();
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // S3：ChatStreamEngine 的回调实现 —— 页面只在这里接触状态机
+  // ────────────────────────────────────────────────────────────
+  private buildStreamCallbacks(): StreamCallbacks {
+    // ⚠️ ArkTS 不允许用对象字面量实现接口方法集（arkts-no-untyped-obj-literals），
+    //    必须 new 出实例后逐个赋值
+    const cb: StreamCallbacks = new StreamCallbacks();
+    cb.onStreamStart = (): void => {
+      this.isStreaming = true;
+    };
+    cb.onContentUpdate = (full: string): void => {
+      this.streamContent = full;
+      this.scrollToBottom();
+    };
+    cb.onCompletion = (finalContent: string): void => {
+      if (finalContent.length > 0) {
+        const doneMsg: ChatMessage = { role: 'assistant', content: finalContent };
+        // 替换掉恢复提示（如果存在），只有没替换时才追加
+        if (!this.replaceIndicator(finalContent)) {
+          this.messageList.push(doneMsg);
+        }
+        this.scheduleSaveMessages();
+        this.scrollToBottom();
+      }
+      this.streamContent = '';
+      this.isStreaming = false;
+      this.isLoading = false;
+    };
+    cb.onFailure = (message: string): void => {
+      this.isStreaming = false;
+      this.isLoading = false;
+      const errChatMsg: ChatMessage = {
+        role: 'assistant',
+        content: '❌ 出错了：' + message + '\n\n当前网络：' + this.networkMode
+      };
+      this.messageList.push(errChatMsg);
+      this.scheduleSaveMessages();
+      this.streamContent = '';
+    };
+    cb.onIndicator = (): void => {
       this.isLoading = false;
       const indicatorMsg: ChatMessage = {
         role: 'assistant',
@@ -356,7 +264,18 @@ struct ChatPage {
       };
       this.messageList.push(indicatorMsg);
       this.scheduleSaveMessages();
-    }
+    };
+    cb.onIndicatorReplace = (content: string): void => {
+      this.replaceIndicator(content);
+    };
+    cb.onSyncNeeded = (sessionId: string, lastSeq: number): void => {
+      wsService.send({
+        type: 'sync_pending',
+        session_id: sessionId,
+        last_seq: lastSeq
+      });
+    };
+    return cb;
   }
 
   private handleApproveRequest(msg: WsMessage): void {
@@ -455,11 +374,14 @@ struct ChatPage {
   }
 
   aboutToAppear(): void {
+    // S3：创建流式状态机（回调实现见 buildStreamCallbacks）
+    this.engine = new ChatStreamEngine(systemClock, this.buildStreamCallbacks());
     // 从Preferences加载持久化的API Key
     const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
     // 先获取固定设备 ID（用于 sync_pending 匹配离线缓存，重启后不变）
     getOrCreateDeviceId(ctx).then((deviceId: string) => {
       this.deviceId = deviceId;
+      this.engine?.bindSession(deviceId);   // S3：把会话身份绑给状态机
       console.info('Device ID: ' + deviceId);
       return loadApiKey(ctx);
     }).then((savedKey: string) => {
@@ -500,21 +422,10 @@ struct ChatPage {
 
   aboutToDisappear(): void {
     this.teardownSubscriptions();   // S2：必须注销事件订阅，否则重复订阅会让消息翻倍
+    this.engine?.dispose();         // S3：状态机清掉全部计时器（原先散在这里的 clearTimeout 已随之下沉）
+    this.engine = null;
     this.hermesApi.destroy();
     wsService.close();
-    if (this.disconnectTimeout !== undefined) {
-      clearTimeout(this.disconnectTimeout);
-      this.disconnectTimeout = undefined;
-    }
-    if (this.streamResumeTimeout !== undefined) {
-      clearTimeout(this.streamResumeTimeout);
-      this.streamResumeTimeout = undefined;
-    }
-    this.stopSyncRetry();
-    if (this.streamStallTimer !== undefined) {
-      clearTimeout(this.streamStallTimer);
-      this.streamStallTimer = undefined;
-    }
   }
 
   /**
@@ -594,23 +505,9 @@ struct ChatPage {
 
     this.inputText = '';
     this.isLoading = true;
-    this.isStreaming = true;
-    this.streamContent = '';
-    // Batch 3：流式回复停顿时长超过 20 秒无 token 则主动请求 sync_pending
-    if (this.streamStallTimer !== undefined) {
-      clearTimeout(this.streamStallTimer);
-    }
-    this.streamStallTimer = setTimeout(() => {
-      this.streamStallTimer = undefined;
-      if (this.isStreaming) {
-        console.info('streamStallTimer: no tokens for 20s, requesting sync_pending');
-        wsService.send({
-          type: 'sync_pending',
-          session_id: this.deviceId,
-          last_seq: this.lastStreamSeq
-        });
-      }
-    }, 20000);
+    // S3：isStreaming / streamContent / 停滞计时器 全部交给状态机
+    // （原 streamStallTimer 的 20s 兜底逻辑已移入 ChatStreamEngine.begin）
+    this.engine?.begin();
 
     // 通过WebSocket发送流式聊天请求
     wsService.send({
