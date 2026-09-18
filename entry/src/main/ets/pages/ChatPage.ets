@@ -3,15 +3,17 @@ import { router } from '@kit.ArkUI';
 import { wifiManager } from '@kit.ConnectivityKit';
 import { common } from '@kit.AbilityKit';
 import { HermesApi } from '../utils/HermesApi.ets';
-import { saveApiKey, loadApiKey, saveMessages, loadMessages, getOrCreateDeviceId } from '../utils/PreferencesHelper.ets';
+import { saveApiKey, loadApiKey, getOrCreateDeviceId } from '../utils/PreferencesHelper.ets';
 // S2：WS 连接与事件分发下沉到 services/，页面只订阅事件
 import { eventBus, Events, Unsubscribe } from '../core/EventBus.ets';
 import { wsService } from '../services/WsService.ets';
+// S4：消息持有与持久化下沉到 ChatService
+import { chatService } from '../services/ChatService.ets';
 // S3：流式状态机下沉到 core/
 import { ChatStreamEngine, StreamCallbacks } from '../core/ChatStreamEngine.ets';
 import { systemClock } from '../core/Timers.ets';
 // S1：所有共享类型统一从 models 层引入（HermesApi/PreferencesHelper/WebSocketClient 不再自行定义）
-import { ChatMessage, ChatRecord, StoredMessage } from '../models/ChatModels.ets';
+import { ChatMessage, ChatRecord } from '../models/ChatModels.ets';
 import { WsMessage } from '../models/WsModels.ets';
 
 // 家里WiFi配置
@@ -20,7 +22,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.0.11';
+const APP_VERSION: string = '2.0.12';
 
 @Entry
 @Component
@@ -44,8 +46,7 @@ struct ChatPage {
   private hermesApi: HermesApi = new HermesApi('', '');
   private deviceId: string = '';                                       // S2：设备ID（原 wsClient.clientId）
   private unsubs: Unsubscribe[] = [];                                  // S2：事件订阅注销句柄，必须集中管理
-  private engine: ChatStreamEngine | null = null;   // S3：流式状态机（原 lastStreamSeq/syncRetryTimer/streamResumeTimeout/streamStallTimer/disconnectTimeout 已移除，disconnectTimeout 本就是无赋值点的死变量）
-  private saveTimer: number | undefined = undefined;
+  private engine: ChatStreamEngine | null = null;   // S3：流式状态机
   private pageVisible: boolean = true;
   private listScroller: Scroller = new Scroller();
 
@@ -74,41 +75,32 @@ struct ChatPage {
       ]
     }).then((result) => {
       if (result.index === 1) {
-        this.messageList.splice(this.deleteMsgIndex, 1);
-        this.messageList = [...this.messageList]; // 触发 @State 更新
-        this.scheduleSaveMessages();
+        // S4：交给 ChatService（内部含防抖持久化）
+        chatService.deleteAt(this.deleteMsgIndex);
+        this.syncMessages();
         this.deleteMsgIndex = -1;
       }
     });
   }
 
-  // 替换消息列表中第一个恢复提示为指定内容，返回是否找到并替换
+  /** S4：把 ChatService 里的消息同步到 @State（slice 产生新数组以触发渲染） */
+  private syncMessages(): void {
+    this.messageList = chatService.getMessages().slice();
+  }
+
+  // 替换消息列表中最后一条恢复提示为指定内容，返回是否找到并替换
   private replaceIndicator(newContent: string): boolean {
-    for (let i: number = this.messageList.length - 1; i >= 0; i--) {
-      if (this.messageList[i].content.startsWith('⏳ 正在恢复连接...')) {
-        const replaced: ChatMessage = { role: 'assistant', content: newContent };
-        this.messageList.splice(i, 1, replaced);
-        this.messageList = [...this.messageList]; // 触发 @State
-        this.scheduleSaveMessages();
-        return true;
-      }
+    const replaced: boolean = chatService.replaceIndicator(newContent);
+    if (replaced) {
+      this.syncMessages();
     }
-    return false;
+    return replaced;
   }
 
   // S3：hasIndicator / startSyncRetry / stopSyncRetry 已移入 ChatStreamEngine。
   // engine 内部用 pendingIndicator 标志代替"遍历 messageList 找占位符"的判断。
 
-  private scheduleSaveMessages(): void {
-    if (this.saveTimer !== undefined) {
-      clearTimeout(this.saveTimer);
-    }
-    this.saveTimer = setTimeout(() => {
-      this.saveTimer = undefined;
-      const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
-      saveMessages(ctx, this.messageList);
-    }, 500);
-  }
+  // S4：scheduleSaveMessages / saveTimer 已下沉到 ChatService（防抖持久化在服务内）
 
   private navigateToFiles(): void {
     router.pushUrl({ url: 'pages/FilesPage' });
@@ -181,12 +173,9 @@ struct ChatPage {
   private onNotificationMsg(msg: WsMessage): void {
     // 显示Toast同时，也插入到聊天框作为消息记录
     this.showToast(msg.body as string);
-    const notifyMsg: ChatMessage = {
-      role: 'assistant',
-      content: '📬 ' + (msg.title !== undefined ? msg.title + '：' : '') + (msg.body as string)
-    };
-    this.messageList.push(notifyMsg);
-    this.scheduleSaveMessages();
+    chatService.append('assistant',
+      '📬 ' + (msg.title !== undefined ? msg.title + '：' : '') + (msg.body as string));
+    this.syncMessages();
   }
 
   /** chat_token：流式 token 到达 */
@@ -233,12 +222,11 @@ struct ChatPage {
     };
     cb.onCompletion = (finalContent: string): void => {
       if (finalContent.length > 0) {
-        const doneMsg: ChatMessage = { role: 'assistant', content: finalContent };
         // 替换掉恢复提示（如果存在），只有没替换时才追加
         if (!this.replaceIndicator(finalContent)) {
-          this.messageList.push(doneMsg);
+          chatService.append('assistant', finalContent);
+          this.syncMessages();
         }
-        this.scheduleSaveMessages();
         this.scrollToBottom();
       }
       this.streamContent = '';
@@ -248,22 +236,14 @@ struct ChatPage {
     cb.onFailure = (message: string): void => {
       this.isStreaming = false;
       this.isLoading = false;
-      const errChatMsg: ChatMessage = {
-        role: 'assistant',
-        content: '❌ 出错了：' + message + '\n\n当前网络：' + this.networkMode
-      };
-      this.messageList.push(errChatMsg);
-      this.scheduleSaveMessages();
+      chatService.append('assistant', '❌ 出错了：' + message + '\n\n当前网络：' + this.networkMode);
+      this.syncMessages();
       this.streamContent = '';
     };
     cb.onIndicator = (): void => {
       this.isLoading = false;
-      const indicatorMsg: ChatMessage = {
-        role: 'assistant',
-        content: '⏳ 正在恢复连接...当前网络：' + this.networkMode
-      };
-      this.messageList.push(indicatorMsg);
-      this.scheduleSaveMessages();
+      chatService.append('assistant', '⏳ 正在恢复连接...当前网络：' + this.networkMode);
+      this.syncMessages();
     };
     cb.onIndicatorReplace = (content: string): void => {
       this.replaceIndicator(content);
@@ -307,9 +287,8 @@ struct ChatPage {
         wsService.send(resp);
         this.showDialog = false;
         const result: string = approved ? '✅ 已授权' : '❌ 已拒绝';
-        const replyMsg: ChatMessage = { role: 'assistant', content: result };
-        this.messageList.push(replyMsg);
-        this.scheduleSaveMessages();
+        chatService.append('assistant', result);
+        this.syncMessages();
       };
 
       promptAction.showDialog({
@@ -336,19 +315,12 @@ struct ChatPage {
         'deny': '拒绝'
       };
       const label: string = labels[choice] ?? choice;
-      const replyMsg: ChatMessage = {
-        role: 'assistant',
-        content: '✅ 已响应授权：' + label
-      };
-      this.messageList.push(replyMsg);
-      this.scheduleSaveMessages();
+      chatService.append('assistant', '✅ 已响应授权：' + label);
+      this.syncMessages();
     } catch (error) {
-      const errMsg: ChatMessage = {
-        role: 'assistant',
-        content: '❌ 授权请求失败：' + (error instanceof Error ? (error as Error).message : String(error))
-      };
-      this.messageList.push(errMsg);
-      this.scheduleSaveMessages();
+      chatService.append('assistant',
+        '❌ 授权请求失败：' + (error instanceof Error ? (error as Error).message : String(error)));
+      this.syncMessages();
     } finally {
       this.showDialog = false;
       this.approveInProgress = false;
@@ -382,6 +354,7 @@ struct ChatPage {
     getOrCreateDeviceId(ctx).then((deviceId: string) => {
       this.deviceId = deviceId;
       this.engine?.bindSession(deviceId);   // S3：把会话身份绑给状态机
+      chatService.bind(ctx, deviceId);      // S4：消息持久化按会话分 key
       console.info('Device ID: ' + deviceId);
       return loadApiKey(ctx);
     }).then((savedKey: string) => {
@@ -397,23 +370,17 @@ struct ChatPage {
         // 建立WebSocket长连接
         this.setupWebSocket(detectedUrl);
 
-        // 恢复历史消息
-        loadMessages(ctx).then((saved: StoredMessage[]) => {
-          if (saved.length > 0) {
-            const restored: ChatMessage[] = [];
-            for (let i: number = 0; i < saved.length; i++) {
-              restored.push({ role: saved[i].role, content: saved[i].content });
-            }
-            this.messageList = restored;
+        // 恢复历史消息（S4：ChatService 内部处理新 key 读取 + 旧 key 迁移）
+        chatService.loadSaved().then((restored: ChatMessage[]) => {
+          if (restored.length > 0) {
+            this.syncMessages();
             this.scrollToBottom();
           } else {
-            const welcome: ChatMessage = { role: 'assistant', content: '' };
-            if (this.apiKey !== '') {
-              welcome.content = '你好！我是小Q v' + APP_VERSION + '，当前网络：' + this.networkMode + '。有什么可以帮你的？';
-            } else {
-              welcome.content = '欢迎使用小Q！请先点击右上角 ⚙️ 按钮配置API密钥。';
-            }
-            this.messageList.push(welcome);
+            const welcomeText: string = this.apiKey !== ''
+              ? '你好！我是小Q v' + APP_VERSION + '，当前网络：' + this.networkMode + '。有什么可以帮你的？'
+              : '欢迎使用小Q！请先点击右上角 ⚙️ 按钮配置API密钥。';
+            chatService.append('assistant', welcomeText);
+            this.syncMessages();
           }
         });
       });
@@ -422,8 +389,9 @@ struct ChatPage {
 
   aboutToDisappear(): void {
     this.teardownSubscriptions();   // S2：必须注销事件订阅，否则重复订阅会让消息翻倍
-    this.engine?.dispose();         // S3：状态机清掉全部计时器（原先散在这里的 clearTimeout 已随之下沉）
+    this.engine?.dispose();         // S3：状态机清掉全部计时器
     this.engine = null;
+    chatService.dispose();          // S4：取消防抖计时器并立即落盘
     this.hermesApi.destroy();
     wsService.close();
   }
@@ -468,9 +436,9 @@ struct ChatPage {
     this.showDialog = false;
 
     if (this.apiKey !== '') {
-      const savedMsg: ChatMessage = { role: 'assistant', content: '配置已保存！当前网络：' + this.networkMode + '，可以开始聊天了。' };
-      this.messageList.push(savedMsg);
-      this.scheduleSaveMessages();
+      chatService.append('assistant',
+        '配置已保存！当前网络：' + this.networkMode + '，可以开始聊天了。');
+      this.syncMessages();
     }
   }
 
@@ -486,20 +454,12 @@ struct ChatPage {
       return;
     }
 
-    // 先构建历史消息（不含当前未完成的流消息，过滤 UI 占位符）
-    const history: ChatRecord[] = [];
-    for (let i: number = 0; i < this.messageList.length; i++) {
-      const m: ChatMessage = this.messageList[i];
-      // 过滤 ⏳ 恢复连接占位符，防止污染 LLM 上下文
-      if (!m.content.startsWith('⏳ 正在恢复连接')) {
-        history.push({ role: m.role, content: m.content });
-      }
-    }
+    // S4：历史构建（含 UI 占位符过滤）收口到 ChatService，避免各处各写一遍过滤
+    const history: ChatRecord[] = chatService.buildHistoryForLlm();
 
     // 添加用户消息到界面
-    const userMsg: ChatMessage = { role: 'user', content: text };
-    this.messageList.push(userMsg);
-    this.scheduleSaveMessages();
+    chatService.append('user', text);
+    this.syncMessages();
     this.scrollToBottom();
     history.push({ role: 'user', content: text });
 
