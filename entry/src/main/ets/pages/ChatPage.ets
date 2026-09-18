@@ -16,9 +16,16 @@ import { ChatMessage, ChatRecord } from '../models/ChatModels.ets';
 import { WsMessage } from '../models/WsModels.ets';
 // S5：网络检测收口到 ApiConfig
 import { apiConfig } from '../core/ApiConfig.ets';
+// S6：UI 组件拆出 pages（ChatPage 只负责编排）
+import { AppHeader } from '../components/AppHeader.ets';
+import { MessageBubble } from '../components/MessageBubble.ets';
+import { StreamingBubble } from '../components/StreamingBubble.ets';
+import { InputBar } from '../components/InputBar.ets';
+import { ApproveSheet } from '../components/ApproveSheet.ets';
+import { SettingsPanel } from '../components/SettingsPanel.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.0.13';
+const APP_VERSION: string = '2.0.15';
 
 @Entry
 @Component
@@ -465,54 +472,37 @@ struct ChatPage {
   build() {
     Stack() {
       Column() {
-        // 标题栏
-        Row() {
-          Text('小Q')
-            .fontSize(20)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#1A1A2E')
-          Blank()
-          Button() {
-            Text('📁')
-              .fontSize(20)
-          }
-          .width(44)
-          .height(44)
-          .backgroundColor('#F0F0FF')
-          .borderRadius(22)
-          .margin({ right: 8 })
-          .onClick(() => {
+        // 标题栏（S6：抽为 AppHeader 组件）
+        AppHeader({
+          onFiles: () => {
             this.navigateToFiles();
-          })
-          Button() {
-            Text('⚙️')
-              .fontSize(20)
-          }
-          .width(44)
-          .height(44)
-          .backgroundColor('#F0F0FF')
-          .borderRadius(22)
-          .onClick(() => {
+          },
+          onSettings: () => {
             this.tempApiKey = this.apiKey;
             this.showSettings = true;
             this.showDialog = true;
-          })
-        }
-        .width('100%')
-        .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-        .backgroundColor('#F8F9FF')
+          }
+        })
 
         // 消息列表
         List({ scroller: this.listScroller }) {
           ForEach(this.messageList, (message: ChatMessage, index: number) => {
             ListItem() {
-              this.MessageBubble(message, index)
+              // S6：改用具名组件（原先调用 @Builder）
+              MessageBubble({
+                message: message,
+                index: index,
+                onDelete: (i: number) => {
+                  this.deleteMsgIndex = i;
+                  this.confirmDeleteMessage();
+                }
+              })
             }
           }, (message: ChatMessage, index: number) => `${index}-${message.content.length}-${message.content.substring(0, 16)}`)
 
-          // 流式消息气泡
+          // 流式消息气泡（⚠️ @Link 绑定，@Prop 在 ListItem 内不会更新）
           ListItem() {
-            this.StreamingBubble()
+            StreamingBubble({ streamContent: $streamContent })
           }
           .visibility(this.isStreaming ? Visibility.Visible : Visibility.None)
         }
@@ -523,38 +513,29 @@ struct ChatPage {
         .edgeEffect(EdgeEffect.Spring)
         .onClick(() => {})
 
-        // 输入区域
-        Row() {
-          TextInput({ placeholder: '给小Q发消息...', text: this.inputText })
-            .layoutWeight(1)
-            .height(44)
-            .backgroundColor('#F0F0F5')
-            .borderRadius(22)
-            .padding({ left: 16, right: 16 })
-            .onChange((value: string) => { this.inputText = value; })
-            .onSubmit(() => { this.sendMessage(); })
-            .enabled(!this.isLoading)
-
-          Button() {
-            if (this.isLoading) {
-              LoadingProgress().width(20).height(20).color('#FFFFFF')
-            } else {
-              Text('发送').fontSize(14).fontColor('#FFFFFF')
-            }
+        // 输入区域（S6：抽为 InputBar 组件）
+        InputBar({
+          text: $inputText,
+          loading: this.isLoading,
+          onSend: () => {
+            this.sendMessage();
           }
-          .width(60).height(40)
-          .backgroundColor(this.isLoading ? '#9999CC' : '#5B5BD6')
-          .borderRadius(20).margin({ left: 8 })
-          .enabled(!this.isLoading && this.inputText.trim().length > 0)
-          .onClick(() => { this.sendMessage(); })
-        }
-        .width('100%')
-        .padding({ left: 12, right: 12, bottom: 12, top: 8 })
-        .backgroundColor('#FFFFFF')
+        })
 
-        // 设置面板（底部弹窗覆盖在内容之上）
+        // 设置面板（S6：抽为 SettingsPanel 组件）
         if (this.showSettings) {
-          this.SettingsPanel()
+          SettingsPanel({
+            networkMode: this.networkMode,
+            apiKey: this.apiKey,
+            appVersion: APP_VERSION,
+            onSave: (key: string) => {
+              this.saveApiKeyValue(key);
+            },
+            onClose: () => {
+              this.showSettings = false;
+              this.showDialog = false;
+            }
+          })
         }
       }
       .width('100%')
@@ -562,368 +543,28 @@ struct ChatPage {
       .backgroundColor('#F8F9FF')
 
       // 授权卡片覆盖层——直接用 Stack 渲染，不用 bindContentCover
+      // （S6：抽为 ApproveSheet 组件）
       if (this.showDialog && !this.showSettings) {
-        this.ApproveOverlay()
+        ApproveSheet({
+          command: this.approveCommand,
+          patterns: this.approvePatterns,
+          inProgress: this.approveInProgress,
+          onChoice: (choice: string) => {
+            this.respondApprove(choice);
+          },
+          onDismiss: () => {
+            this.showDialog = false;
+          }
+        })
       }
     }
     .width('100%')
     .height('100%')
   }
 
-  @Builder
-  MessageBubble(message: ChatMessage, index: number) {
-    Row() {
-      if (message.role === 'user') {
-        Blank()
-      }
-
-      Column() {
-        if (message.role === 'assistant') {
-          Row() {
-            Image($r('app.media.bot_avatar'))
-              .width(20)
-              .height(20)
-              .borderRadius(10)
-              .margin({ right: 6 })
-            Text('小Q')
-              .fontSize(12)
-              .fontColor('#5B5BD6')
-              .fontWeight(FontWeight.Medium)
-          }
-          .margin({ bottom: 4 })
-        }
-
-        Text(message.content)
-          .fontSize(15)
-          .fontColor(message.role === 'user' ? '#FFFFFF' : '#1A1A2E')
-          .lineHeight(22)
-          .copyOption(CopyOptions.LocalDevice)
-      }
-      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-      .backgroundColor(message.role === 'user' ? '#5B5BD6' : '#FFFFFF')
-      .borderRadius(16)
-      .shadow({
-        radius: 4,
-        color: message.role === 'user' ? 'rgba(91,91,214,0.2)' : 'rgba(0,0,0,0.06)'
-      })
-      .constraintSize({ maxWidth: '80%' })
-      .alignItems(HorizontalAlign.Start)
-
-      if (message.role === 'assistant') {
-        Blank()
-      }
-    }
-    .width('100%')
-    .margin({ top: 8, bottom: 4 })
-    .justifyContent(FlexAlign.SpaceBetween)
-    .alignItems(VerticalAlign.Top)
-    .gesture(
-      LongPressGesture({ repeat: false, duration: 500 })
-        .onAction(() => {
-          this.deleteMsgIndex = index;
-          this.confirmDeleteMessage();
-        })
-    )
-  }
-
-  @Builder
-  StreamingBubble() {
-    Row() {
-      Blank()
-
-      Column() {
-        Row() {
-          Text('🤖')
-            .fontSize(16)
-            .margin({ right: 6 })
-          Text('小Q')
-            .fontSize(12)
-            .fontColor('#5B5BD6')
-            .fontWeight(FontWeight.Medium)
-        }
-        .margin({ bottom: 4 })
-
-        // 流式内容：打字机效果
-        Text(this.streamContent)
-          .fontSize(15)
-          .fontColor('#1A1A2E')
-          .lineHeight(22)
-          .copyOption(CopyOptions.LocalDevice)
-
-        // 闪烁光标指示正在回复
-        if (this.streamContent.length === 0) {
-          Row() {
-            LoadingProgress()
-              .width(16)
-              .height(16)
-              .color('#5B5BD6')
-          }
-          .width('100%')
-          .margin({ top: 4 })
-        }
-      }
-      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-      .backgroundColor('#FFFFFF')
-      .borderRadius(16)
-      .shadow({ radius: 4, color: 'rgba(0,0,0,0.06)' })
-      .constraintSize({ maxWidth: '80%' })
-      .alignItems(HorizontalAlign.Start)
-    }
-    .width('100%')
-    .margin({ top: 8, bottom: 4 })
-    .justifyContent(FlexAlign.SpaceBetween)
-    .alignItems(VerticalAlign.Top)
-  }
-
-  @Builder
-  DialogLayer() {
-    // 已废弃——改用 Stack 直接渲染 ApproveOverlay
-  }
-
-  @Builder
-  ApproveOverlay() {
-    Column() {
-      Column() {
-        // 头部
-      Row() {
-        Text('🔐')
-          .fontSize(28)
-          .margin({ right: 10 })
-        Column() {
-          Text('授权请求')
-            .fontSize(12)
-            .fontColor('#888888')
-          Text('安全扫描')
-            .fontSize(18)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#1A1A2E')
-            .lineHeight(24)
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-      }
-      .width('100%')
-      .margin({ bottom: 16 })
-
-      // 命令（代码块风格）
-      if (this.approveCommand.length > 0) {
-        Text('需要执行的命令：')
-          .fontSize(13)
-          .fontColor('#888888')
-          .width('100%')
-          .margin({ bottom: 6 })
-        Text(this.approveCommand)
-          .fontSize(13)
-          .fontColor('#FFFFFF')
-          .fontFamily('Courier')
-          .lineHeight(20)
-          .width('100%')
-          .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-          .backgroundColor('#1A1A2E')
-          .borderRadius(8)
-          .margin({ bottom: 12 })
-      }
-
-      // 匹配模式标签
-      if (this.approvePatterns.length > 0) {
-        Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap }) {
-          ForEach(this.approvePatterns, (pattern: string) => {
-            Text(pattern)
-              .fontSize(11)
-              .fontColor('#5B5BD6')
-              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-              .backgroundColor('#F0F0FF')
-              .borderRadius(10)
-              .margin({ right: 4, bottom: 4 })
-          })
-        }
-        .width('100%')
-        .margin({ bottom: 16 })
-      }
-
-      // 四个操作按钮
-      Column() {
-        Row() {
-          Button() {
-            Row() {
-              Text('▶️').fontSize(14)
-              Text('仅本次放行').fontSize(13).fontColor('#1A1A2E').margin({ left: 4 })
-            }.justifyContent(FlexAlign.Center)
-          }
-          .layoutWeight(1).height(44).backgroundColor('#F0F5FF').borderRadius(10).margin({ right: 6 })
-          .enabled(!this.approveInProgress)
-          .onClick(() => { this.respondApprove('once'); })
-
-          Button() {
-            Row() {
-              Text('🔄').fontSize(14)
-              Text('会话放行').fontSize(13).fontColor('#1A1A2E').margin({ left: 4 })
-            }.justifyContent(FlexAlign.Center)
-          }
-          .layoutWeight(1).height(44).backgroundColor('#F0FFF0').borderRadius(10).margin({ left: 6 })
-          .enabled(!this.approveInProgress)
-          .onClick(() => { this.respondApprove('session'); })
-        }
-        .width('100%')
-        .margin({ bottom: 8 })
-
-        Row() {
-          Button() {
-            Row() {
-              Text('✅').fontSize(14)
-              Text('始终允许').fontSize(13).fontColor('#FFFFFF').margin({ left: 4 })
-            }.justifyContent(FlexAlign.Center)
-          }
-          .layoutWeight(1).height(44).backgroundColor('#4CAF50').borderRadius(10).margin({ right: 6 })
-          .enabled(!this.approveInProgress)
-          .onClick(() => { this.respondApprove('always'); })
-
-          Button() {
-            Row() {
-              Text('⛔').fontSize(14)
-              Text('拒绝').fontSize(13).fontColor('#FFFFFF').margin({ left: 4 })
-            }.justifyContent(FlexAlign.Center)
-          }
-          .layoutWeight(1).height(44).backgroundColor('#FF5252').borderRadius(10).margin({ left: 6 })
-          .enabled(!this.approveInProgress)
-          .onClick(() => { this.respondApprove('deny'); })
-        }
-        .width('100%')
-      }
-      .width('100%')
-
-      // 处理中
-      if (this.approveInProgress) {
-        Row() {
-          LoadingProgress().width(16).height(16).color('#5B5BD6')
-          Text('处理中...').fontSize(13).fontColor('#999999').margin({ left: 8 })
-        }.width('100%').justifyContent(FlexAlign.Center).margin({ top: 12 })
-      }
-    }
-    .width('100%')
-    .padding(24)
-    .backgroundColor('#FFFFFF')
-    .borderRadius({ topLeft: 20, topRight: 20 })
-  }
-  .width('100%')
-  .height('100%')
-  .backgroundColor('#66000000')
-  .justifyContent(FlexAlign.End)
-  .onClick(() => {
-    this.showDialog = false;
-  })
-}
-
-  @Builder
-  SettingsPanel() {
-    Column() {
-      // 标题
-      Row() {
-        Blank()
-        Text('设置')
-          .fontSize(18)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#1A1A2E')
-        Blank()
-        Button() {
-          Text('✕')
-            .fontSize(18)
-            .fontColor('#999999')
-        }
-        .width(36)
-        .height(36)
-        .backgroundColor('transparent')
-        .onClick(() => {
-          this.showSettings = false;
-          this.showDialog = false;
-        })
-      }
-      .width('100%')
-      .padding({ bottom: 20 })
-
-      // 当前网络状态（只读提示）
-      Text('当前网络')
-        .fontSize(14)
-        .fontColor('#666666')
-        .width('100%')
-        .margin({ bottom: 6 })
-      Row() {
-        Text(this.networkMode)
-          .fontSize(14)
-          .fontColor('#5B5BD6')
-          .fontWeight(FontWeight.Medium)
-      }
-      .width('100%')
-      .height(44)
-      .backgroundColor('#F5F5FA')
-      .borderRadius(10)
-      .padding({ left: 12 })
-
-      Text('在家自动走内网直连，出门自动切公网')
-        .fontSize(12)
-        .fontColor('#AAAAAA')
-        .width('100%')
-        .margin({ top: 4, bottom: 16 })
-
-      // API 密钥
-      Text('API 密钥')
-        .fontSize(14)
-        .fontColor('#666666')
-        .width('100%')
-        .margin({ bottom: 6 })
-      TextInput({ placeholder: '输入Bearer Token', text: this.tempApiKey })
-        .width('100%')
-        .height(44)
-        .backgroundColor('#F5F5FA')
-        .borderRadius(10)
-        .padding({ left: 12 })
-        .type(InputType.Password)
-        .onChange((value: string) => {
-          this.tempApiKey = value;
-        })
-
-      Text('密钥在 Hermes 的 .env 文件中（API_SERVER_KEY）')
-        .fontSize(12)
-        .fontColor('#AAAAAA')
-        .width('100%')
-        .margin({ top: 8 })
-
-      Blank()
-
-      // 版本信息
-      Text('小Q v' + APP_VERSION)
-        .fontSize(12)
-        .fontColor('#BBBBBB')
-        .width('100%')
-        .textAlign(TextAlign.Center)
-        .margin({ top: 16, bottom: 4 })
-
-      Text('由 Hermes Agent 驱动')
-        .fontSize(11)
-        .fontColor('#CCCCCC')
-        .width('100%')
-        .textAlign(TextAlign.Center)
-        .margin({ bottom: 8 })
-
-      // 保存按钮
-      Button() {
-        Text('保存')
-          .fontSize(16)
-          .fontColor('#FFFFFF')
-          .fontWeight(FontWeight.Medium)
-      }
-      .width('100%')
-      .height(48)
-      .backgroundColor('#5B5BD6')
-      .borderRadius(24)
-      .onClick(() => {
-        this.saveSettings();
-      })
-    }
-    .width('100%')
-    .height('65%')
-    .padding({ left: 24, right: 24, top: 24, bottom: 32 })
-    .backgroundColor('#FFFFFF')
-    .borderRadius({ topLeft: 20, topRight: 20 })
+  /** S6：设置面板现在是组件，密钥由子组件回传，这里桥接到原有的保存逻辑 */
+  private saveApiKeyValue(key: string): void {
+    this.tempApiKey = key;
+    this.saveSettings();
   }
 }
