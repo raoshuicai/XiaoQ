@@ -86,6 +86,8 @@ export class Events {
   /** sync_pending_response 独立事件 —— 它与 sync_resume 语义不同，不可混用
    *  （MoA-1 #2：混用会导致"补发 token"这条续流路径失去归属）*/
   static readonly CHAT_SYNC_PENDING: string = 'chat.sync_pending';
+  /** S12：服务端确认了本轮所属会话（新建会话时 APP 据此记住 ID） */
+  static readonly CHAT_STARTED: string = 'chat.started';
   static readonly APPROVE_REQUEST: string = 'approve.request';
   static readonly NOTIFICATION: string = 'notification';
 }

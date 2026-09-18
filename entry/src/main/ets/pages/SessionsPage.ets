@@ -1,0 +1,282 @@
+/**
+ * SessionsPage —— 会话列表（抽屉式）
+ *
+ * S12 新增。此前 session_id 固定 = device_id，APP 永远只有一个会话，
+ * 也没法回看历史会话；本页补齐「列表 + 切换 + 新建」。
+ *
+ * 切换机制：
+ *   选中会话 -> 写 AppStorage['activeSessionId'] -> router.back()
+ *   ChatPage 用 @StorageLink 监听该值，变化时重载消息并切换发送目标。
+ *   （不直接在页面间传引用的原因：ChatPage 是常驻的入口页，而列表页是临时压栈的）
+ *
+ * 新建会话 = 把 activeSessionId 置空，由服务端在下次 chat 时生成 `app-{uuid}`
+ * 并通过 chat_started 回执 —— APP 收到后写回 AppStorage。
+ */
+
+import { router } from '@kit.ArkUI';
+import { promptAction } from '@kit.ArkUI';
+import { sessionService, relativeTime } from '../services/SessionService.ets';
+import { SessionItem } from '../models/SessionModels.ets';
+import { rest } from '../core/HermesRest.ets';
+import { apiConfig } from '../core/ApiConfig.ets';
+
+/** AppStorage key：当前活跃会话（ChatPage 用 @StorageLink 绑定）*/
+export const ACTIVE_SESSION_KEY: string = 'activeSessionId';
+
+const PAGE_SIZE: number = 30;
+
+@Entry
+@Component
+struct SessionsPage {
+  @State loading: boolean = true;
+  @State loadingMore: boolean = false;
+  @State errorMsg: string = '';
+  @State items: SessionItem[] = [];
+  @State total: number = 0;
+  @State hasMore: boolean = false;
+
+  @StorageLink('apiKey') apiKey: string = '';
+  @StorageLink('activeSessionId') activeSessionId: string = '';
+
+  aboutToAppear(): void {
+    this.load(true);
+  }
+
+  private async load(reset: boolean): Promise<void> {
+    if (reset) {
+      this.loading = true;
+      this.errorMsg = '';
+    } else {
+      if (!this.hasMore || this.loadingMore) {
+        return;
+      }
+      this.loadingMore = true;
+    }
+    try {
+      await apiConfig.ensureReady(this.apiKey);
+      rest.configure(apiConfig.getBaseUrl(), apiConfig.getApiKey());
+
+      const offset: number = reset ? 0 : this.items.length;
+      const page = await sessionService.fetchSessions(PAGE_SIZE, offset);
+      this.total = page.total;
+      this.hasMore = page.hasMore;
+      if (reset) {
+        this.items = page.items;
+      } else {
+        const merged: SessionItem[] = [];
+        for (const x of this.items) {
+          merged.push(x);
+        }
+        for (const x of page.items) {
+          merged.push(x);
+        }
+        this.items = merged;
+      }
+      this.loading = false;
+      this.loadingMore = false;
+    } catch (e) {
+      this.loading = false;
+      this.loadingMore = false;
+      this.errorMsg = e instanceof Error ? (e as Error).message : String(e);
+      this.showToast('加载失败：' + this.errorMsg);
+    }
+  }
+
+  /** 选中某个会话 -> 写 AppStorage -> 返回聊天页 */
+  private pick(s: SessionItem): void {
+    if (this.activeSessionId === s.id) {
+      this.showToast('已经是当前会话');
+      router.back();
+      return;
+    }
+    AppStorage.setOrCreate(ACTIVE_SESSION_KEY, s.id);
+    this.showToast('已切换到：' + s.displayTitle());
+    router.back();
+  }
+
+  /** 新会话：置空，由服务端在下次发消息时生成 ID */
+  private newSession(): void {
+    AppStorage.setOrCreate(ACTIVE_SESSION_KEY, '');
+    this.showToast('已开新会话，发消息即可');
+    router.back();
+  }
+
+  private showToast(msg: string): void {
+    try {
+      promptAction.showToast({ message: msg, duration: 2000 });
+    } catch (err) {
+      console.error('toast failed');
+    }
+  }
+
+  private tokenText(n: number): string {
+    if (n >= 10000) {
+      return (n / 10000).toFixed(1) + ' 万';
+    }
+    return String(n);
+  }
+
+  build() {
+    Stack() {
+      Column() {
+        // 标题栏
+        Row() {
+          Button() {
+            Text('← 返回').fontSize(15).fontColor('#5B5BD6')
+          }
+          .backgroundColor('transparent')
+          .onClick(() => {
+            router.back();
+          })
+
+          Text('会话')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#1A1A2E')
+            .layoutWeight(1)
+            .textAlign(TextAlign.Center)
+
+          Button() {
+            Text('新会话').fontSize(15).fontColor('#5B5BD6')
+          }
+          .backgroundColor('transparent')
+          .onClick(() => {
+            this.newSession();
+          })
+        }
+        .width('100%')
+        .padding({ left: 8, right: 8, top: 8, bottom: 8 })
+        .backgroundColor('#F8F9FF')
+
+        // 当前会话提示条
+        Row() {
+          Text('当前：')
+            .fontSize(11).fontColor('#999999')
+          Text(this.activeSessionId.length > 0 ? this.activeSessionId : '（新会话，尚未开始）')
+            .fontSize(11)
+            .fontColor(this.activeSessionId.length > 0 ? '#5B5BD6' : '#C77A20')
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+        .backgroundColor('#FFFFFF')
+
+        if (this.loading) {
+          Column() {
+            LoadingProgress().width(40).height(40).color('#5B5BD6')
+            Text('加载中…').fontSize(14).fontColor('#999999').margin({ top: 10 })
+          }
+          .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+        } else if (this.errorMsg.length > 0) {
+          Column() {
+            Text('⚠️').fontSize(40)
+            Text(this.errorMsg).fontSize(13).fontColor('#999999')
+              .margin({ top: 8 }).textAlign(TextAlign.Center)
+              .padding({ left: 32, right: 32 })
+            Button() {
+              Text('重试').fontSize(14).fontColor('#FFFFFF')
+            }
+            .width(120).height(40).backgroundColor('#5B5BD6').borderRadius(20)
+            .margin({ top: 16 })
+            .onClick(() => {
+              this.load(true);
+            })
+          }
+          .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+        } else if (this.items.length === 0) {
+          Column() {
+            Text('💬').fontSize(44)
+            Text('还没有会话').fontSize(14).fontColor('#999999').margin({ top: 10 })
+          }
+          .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+        } else {
+          List() {
+            ForEach(this.items, (s: SessionItem, idx: number) => {
+              ListItem() {
+                Row() {
+                  // 当前会话左侧竖条
+                  Column()
+                    .width(3)
+                    .height(38)
+                    .borderRadius(2)
+                    .backgroundColor(this.activeSessionId === s.id ? '#5B5BD6' : '#00000000')
+                    .margin({ right: 10 })
+
+                  Column() {
+                    Text(s.displayTitle())
+                      .fontSize(14)
+                      .fontWeight(this.activeSessionId === s.id ? FontWeight.Bold : FontWeight.Normal)
+                      .fontColor(this.activeSessionId === s.id ? '#5B5BD6' : '#1A1A2E')
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .width('100%')
+
+                    Row() {
+                      Text(s.messageCount + ' 条消息')
+                        .fontSize(11).fontColor('#AAAAAA')
+                      Text('·')
+                        .fontSize(11).fontColor('#DDDDDD').margin({ left: 4, right: 4 })
+                      Text(this.tokenText(s.tokens) + ' tokens')
+                        .fontSize(11).fontColor('#AAAAAA')
+                      Blank()
+                      Text(relativeTime(s.updatedAt))
+                        .fontSize(11).fontColor('#BBBBBB')
+                    }
+                    .width('100%')
+                    .margin({ top: 5 })
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
+                }
+                .width('100%')
+                .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+                .backgroundColor(idx % 2 === 0 ? '#FFFFFF' : '#F7F8FC')
+                .onClick(() => {
+                  this.pick(s);
+                })
+              }
+            }, (s: SessionItem) => s.id)
+
+            // 分页加载
+            if (this.hasMore) {
+              ListItem() {
+                Column() {
+                  LoadingProgress().width(22).height(22).color('#5B5BD6')
+                  Text('加载更多…').fontSize(12).fontColor('#999999').margin({ top: 6 })
+                }
+                .width('100%')
+                .padding({ top: 14, bottom: 14 })
+                .onClick(() => {
+                  this.load(false);
+                })
+              }
+            }
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .divider({ strokeWidth: 1, color: '#EEEEF5' })
+          .scrollBar(BarState.Auto)
+          .edgeEffect(EdgeEffect.Spring)
+          .onReachEnd(() => {
+            this.load(false);
+          })
+        }
+
+        Text('共 ' + this.total + ' 个会话' + (this.hasMore ? '（已加载 ' + this.items.length + '）' : ''))
+          .fontSize(11)
+          .fontColor('#BBBBBB')
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .padding({ top: 8, bottom: 12 })
+          .backgroundColor('#F5F5FA')
+      }
+      .width('100%')
+      .height('100%')
+      .backgroundColor('#F5F5FA')
+    }
+    .width('100%')
+    .height('100%')
+  }
+}

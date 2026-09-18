@@ -27,6 +27,8 @@ export class WsBridgeHooks {
   onNotification: (msg: WsMessage) => void = () => {};
   /** 审批请求到达：交给全局审批中心 */
   onApprove: (msg: WsMessage) => void = () => {};
+  /** S12：服务端确认了本轮会话（含新建会话的 ID）*/
+  onChatStarted: (msg: WsMessage) => void = () => {};
 }
 
 export class ChatWsBridge {
@@ -83,6 +85,11 @@ export class ChatWsBridge {
     // 审批请求：交给全局审批中心
     this.unsubs.push(eventBus.on(Events.APPROVE_REQUEST, (m: WsMessage): void => {
       hooks.onApprove(m);
+    }));
+
+    // S12：本轮所属会话确认（新建会话时 APP 据此记住 ID）
+    this.unsubs.push(eventBus.on(Events.CHAT_STARTED, (m: WsMessage): void => {
+      hooks.onChatStarted(m);
     }));
 
     // WS 连上/断开：交给 engine 判断是否需要续流 / 插恢复占位符

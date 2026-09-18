@@ -18,6 +18,8 @@ export struct AppHeader {
   onNotify: () => void = () => {};
   /** 点击 ⏰ → 定时任务面板（S10） */
   onCron: () => void = () => {};
+  /** S12：点标题 → 打开会话列表 */
+  onSessions: () => void = () => {};
   /** 点击 ⚙️ → 打开设置面板 */
   onSettings: () => void = () => {};
 
@@ -48,6 +50,11 @@ export struct AppHeader {
         .fontSize(20)
         .fontWeight(FontWeight.Bold)
         .fontColor('#1A1A2E')
+        .padding({ left: 4, right: 8, top: 4, bottom: 4 })
+        .onClick(() => {
+          // S12：点标题打开会话列表（顶部按钮位已满，标题是最自然的位置）
+          this.onSessions();
+        })
       Blank()
 
       this.IconButton('📊', (): void => { this.onTokens(); })

@@ -27,9 +27,13 @@ import { SettingsPanel } from '../components/SettingsPanel.ets';
 import { approveService } from '../services/ApproveService.ets';
 // S9：通知中心未读数
 import { notifyService } from '../services/NotifyService.ets';
+// S12：会话历史（本地缓存没有时从服务端拉）
+import { sessionService } from '../services/SessionService.ets';
+// S5/S12：REST 客户端（拉会话历史要显式 configure）
+import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.5.1';
+const APP_VERSION: string = '2.6.1';
 
 @Entry
 @Component
@@ -41,6 +45,13 @@ struct ChatPage {
   @State streamContent: string = '';
   @State showSettings: boolean = false;
   @StorageLink('apiKey') apiKey: string = '';
+  /**
+   * S12：当前活跃会话 ID。
+   * - 启动时默认填 deviceId（兼容历史：以前 session_id 就是 device_id）
+   * - 在会话列表里选别的会话 -> 该值变化 -> @Watch 触发重载消息
+   * - 点「新会话」-> 置空 -> 下次发消息由服务端生成并回执 chat_started
+   */
+  @StorageLink('activeSessionId') @Watch('onSessionChanged') activeSessionId: string = '';
   @State tempApiKey: string = '';
   @State networkMode: string = '检测中...';
   // S7：审批状态（showDialog/approveRunId/approveCommand/approvePatterns/
@@ -49,6 +60,8 @@ struct ChatPage {
 
   private hermesApi: HermesApi = new HermesApi('', '');
   private deviceId: string = '';                                       // S2：设备ID（原 wsClient.clientId）
+  /** S12：供切会话时重载消息用 */
+  private appCtx: common.Context | null = null;
   private engine: ChatStreamEngine | null = null;   // S3：流式状态机
   private pageVisible: boolean = true;
   private listScroller: Scroller = new Scroller();
@@ -132,6 +145,10 @@ struct ChatPage {
     };
     hooks.onApprove = (msg: WsMessage): void => {
       this.handleApproveRequest(msg);
+    };
+    // S12：服务端确认本轮会话（新建会话的 ID 从这里来）
+    hooks.onChatStarted = (msg: WsMessage): void => {
+      this.onChatStartedMsg(msg);
     };
 
     // engine 用 getter 传：它由 aboutToAppear 创建，可能晚于本次 connect
@@ -254,12 +271,23 @@ struct ChatPage {
     approveService.bind(ctx).catch((e: Error) => {
       console.info('approve history bind failed: ' + e.message);
     });
+    // S12：会话列表页要用的 Context（切换会话后重载消息）
+    this.appCtx = ctx;
     // 先获取固定设备 ID（用于 sync_pending 匹配离线缓存，重启后不变）
     getOrCreateDeviceId(ctx).then((deviceId: string) => {
       this.deviceId = deviceId;
-      this.engine?.bindSession(deviceId);   // S3：把会话身份绑给状态机
-      chatService.bind(ctx, deviceId);      // S4：消息持久化按会话分 key
-      console.info('Device ID: ' + deviceId);
+      // S12：首次启动时若还没有活跃会话，默认用 deviceId 作为会话 ——
+      // 兼容历史（以前 session_id 就是 device_id，老消息按 deviceId 存的）。
+      // 先 bind 再写 AppStorage，避免 @Watch 触发一次多余的重载把刚恢复的消息冲掉。
+      if (this.activeSessionId.length === 0) {
+        this.engine?.bindSession(deviceId);   // S3：把会话身份绑给状态机
+        chatService.bind(ctx, deviceId);      // S4：消息持久化按会话分 key
+        AppStorage.setOrCreate('activeSessionId', deviceId);
+      } else {
+        this.engine?.bindSession(this.activeSessionId);
+        chatService.bind(ctx, this.activeSessionId);
+      }
+      console.info('Device ID: ' + deviceId + ' | session: ' + this.activeSessionId);
       return loadApiKey(ctx);
     }).then((savedKey: string) => {
       if (savedKey !== '') {
@@ -285,15 +313,44 @@ struct ChatPage {
             this.syncMessages();
             this.scrollToBottom();
           } else {
-            const welcomeText: string = this.apiKey !== ''
-              ? '你好！我是小Q v' + APP_VERSION + '，当前网络：' + this.networkMode + '。有什么可以帮你的？'
-              : '欢迎使用小Q！请先点击右上角 ⚙️ 按钮配置API密钥。';
-            chatService.append('assistant', welcomeText);
-            this.syncMessages();
+            // S12：本地为空（重装 / 换设备）-> 先试服务端历史；确实没有才落欢迎语
+            this.loadHistoryOrWelcome();
           }
         });
       });
     });
+  }
+
+  /** S12：本地无缓存时，先拉服务端历史；服务端也没有才显示欢迎语 */
+  private async loadHistoryOrWelcome(): Promise<void> {
+    const sid: string = this.activeSessionId;
+    let loaded: number = 0;
+    if (sid.length > 0) {
+      try {
+        const page = await sessionService.fetchMessages(sid, 100, 0);
+        const list: ChatMessage[] = [];
+        for (const m of page.items) {
+          if ((m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0) {
+            // ChatMessage 是 interface（不是 class），不能用 new —— 纯数据字段字面量是允许的
+            list.push({ role: m.role, content: m.content });
+          }
+        }
+        loaded = list.length;
+        if (loaded > 0) {
+          chatService.setMessages(list);
+          console.info('Loaded ' + loaded + ' / ' + page.total + ' history for ' + sid);
+        }
+      } catch (e) {
+        console.info('load history failed: ' + this.errText(e));
+      }
+    }
+    if (loaded === 0) {
+      const welcomeText: string = this.apiKey !== ''
+        ? '你好！我是小Q v' + APP_VERSION + '，当前网络：' + this.networkMode + '。有什么可以帮你的？'
+        : '欢迎使用小Q！请先点击右上角 ⚙️ 按钮配置API密钥。';
+      chatService.append('assistant', welcomeText);
+      this.syncMessages();
+    }
   }
 
   aboutToDisappear(): void {
@@ -386,10 +443,11 @@ struct ChatPage {
     this.engine?.begin();
 
     // 通过WebSocket发送流式聊天请求
+    // S12：session_id 用「当前会话」而非 deviceId（空 = 让服务端新建）
     wsService.send({
       type: 'chat',
       messages: history,
-      session_id: this.deviceId
+      session_id: this.activeSessionId
     });
   }
   build() {
@@ -412,6 +470,11 @@ struct ChatPage {
           },
           onCron: () => {
             router.pushUrl({ url: 'pages/CronPage' }).catch((e: Error) => {
+              this.showToast('跳转失败：' + e.message);
+            });
+          },
+          onSessions: () => {
+            router.pushUrl({ url: 'pages/SessionsPage' }).catch((e: Error) => {
               this.showToast('跳转失败：' + e.message);
             });
           },
@@ -501,7 +564,98 @@ struct ChatPage {
     .height('100%')
   }
 
-  /** S6：设置面板现在是组件，密钥由子组件回传，这里桥接到原有的保存逻辑 */
+  /**
+   * S12：会话切换回调（@StorageLink('activeSessionId') 的 @Watch）。
+   *
+   * ⚠️ 刻意**不重连 WebSocket** —— WS 是设备级的（client_id = device_id），
+   *    会话只是它上面的一层逻辑维度。切会话重连既没必要，还会丢掉正在流的 token。
+   *    真正需要隔离的是「token 落到哪个会话」：靠 engine.bindSession +
+   *    chatService.bind 换掉归属，配合服务端按 session_id 回传（见决策 1）。
+   */
+  private onSessionChanged(): void {
+    if (this.appCtx === null) {
+      return;
+    }
+    const sid: string = this.activeSessionId;
+    this.engine?.bindSession(sid);
+    chatService.bind(this.appCtx, sid);
+    this.streamContent = '';
+    this.isStreaming = false;
+    this.isLoading = false;
+    chatService.loadSaved().then((restored: ChatMessage[]) => {
+      if (restored.length > 0) {
+        this.syncMessages();
+        this.scrollToBottom();
+        console.info('Switched session -> ' + (sid.length > 0 ? sid : '(new)')
+          + ', restored ' + restored.length + ' from local');
+      } else {
+        // S12：本地没有（换过设备 / 重装 / 从没聊过）-> 去服务端拉历史
+        this.loadHistoryFromServer(sid);
+      }
+    });
+  }
+
+  /**
+   * S12：从服务端拉某个会话的历史消息。
+   * 本地缓存只覆盖"本设备聊过的"，换设备或重装后要靠这里把历史补齐。
+   * offset 语义是从最新往历史翻，这里先取最新一页（100 条）。
+   */
+  private async loadHistoryFromServer(sid: string): Promise<void> {
+    if (sid.length === 0) {
+      // 新会话：服务端还没有，直接清空
+      chatService.setMessages([]);
+      this.syncMessages();
+      return;
+    }
+    try {
+      const page = await sessionService.fetchMessages(sid, 100, 0);
+      const list: ChatMessage[] = [];
+      for (const m of page.items) {
+        // 只显示对话双方；tool / system 消息不适合直接铺在聊天流里
+        if (m.role === 'user' || m.role === 'assistant') {
+          if (m.content.trim().length === 0) {
+            continue;
+          }
+          list.push({ role: m.role, content: m.content });
+        }
+      }
+      chatService.setMessages(list);
+      this.syncMessages();
+      this.scrollToBottom();
+      console.info('Loaded ' + list.length + ' / ' + page.total
+        + ' history messages from server for ' + sid);
+      if (page.hasMore) {
+        this.showToast('已加载最近 ' + list.length + ' 条（共 ' + page.total + ' 条）');
+      }
+    } catch (e) {
+      console.info('load history failed: ' + this.errText(e));
+      this.showToast('历史加载失败：' + this.errText(e));
+    }
+  }
+
+  private errText(e: Object): string {
+    return e instanceof Error ? (e as Error).message : String(e);
+  }
+
+  /** S12：服务端回执了本轮会话（新建会话时把生成出来的 ID 记下来）*/
+  private onChatStartedMsg(msg: WsMessage): void {
+    const sid: string = (msg.session_id as string) ?? '';
+    if (sid.length === 0 || sid === this.activeSessionId) {
+      return;
+    }
+    if (this.activeSessionId.length === 0) {
+      // 新建会话：把服务端生成的 ID 落下来。
+      // 注意先 bind 再写 AppStorage —— 写 AppStorage 会触发 @Watch，
+      // 而那时 activeSessionId 已经是新值，onSessionChanged 会做一次无谓重载；
+      // 这里直接同步绑定，避免刚发出的消息被重载冲掉。
+      if (this.appCtx !== null) {
+        this.engine?.bindSession(sid);
+        chatService.bind(this.appCtx, sid);
+      }
+      AppStorage.setOrCreate('activeSessionId', sid);
+      console.info('New session established: ' + sid);
+    }
+  }
   private saveApiKeyValue(key: string): void {
     this.tempApiKey = key;
     this.saveSettings();
