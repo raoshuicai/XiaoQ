@@ -24,9 +24,18 @@ import { apiConfig } from '../core/ApiConfig.ets';
 struct CronPage {
   @State loading: boolean = true;
   @State errorMsg: string = '';
+  /** 全量任务（服务端返回） */
   @State jobs: CronJob[] = [];
+  /** 当前展示的任务（按 filter 过滤后） */
+  @State displayJobs: CronJob[] = [];
+  /**
+   * 过滤条件：all | enabled | paused | error
+   * 点顶部统计数字切换，再点一次同一个数字回到 all。
+   */
+  @State filter: string = 'all';
   @State busyId: string = '';
   @State enabledCount: number = 0;
+  @State pausedCount: number = 0;
   @State errorCount: number = 0;
 
   @StorageLink('apiKey') apiKey: string = '';
@@ -61,12 +70,56 @@ struct CronPage {
       }
       this.enabledCount = en;
       this.errorCount = er;
+      this.pausedCount = list.length - en;
+      this.applyFilter();
       this.loading = false;
     } catch (e) {
       this.loading = false;
       this.errorMsg = e instanceof Error ? (e as Error).message : String(e);
       this.showToast('加载失败：' + this.errorMsg);
     }
+  }
+
+  /**
+   * 按当前 filter 重算展示列表。
+   * ArkUI 没有 computed 属性，派生数据只能显式重算 —— 在数据变更和 filter 变更时都调一次。
+   */
+  private applyFilter(): void {
+    if (this.filter === 'all') {
+      this.displayJobs = this.jobs;
+      return;
+    }
+    const out: CronJob[] = [];
+    for (const j of this.jobs) {
+      if (this.filter === 'enabled' && j.enabled) {
+        out.push(j);
+      } else if (this.filter === 'paused' && !j.enabled) {
+        out.push(j);
+      } else if (this.filter === 'error' && hasError(j)) {
+        out.push(j);
+      }
+    }
+    this.displayJobs = out;
+  }
+
+  /** 点顶部统计：同一个键再点一次回到 all（便于快速取消筛选） */
+  private setFilter(key: string): void {
+    this.filter = this.filter === key ? 'all' : key;
+    this.applyFilter();
+  }
+
+  /** 当前筛选的中文名（用于空态与底部说明） */
+  private filterLabel(): string {
+    if (this.filter === 'enabled') {
+      return '已启用';
+    }
+    if (this.filter === 'paused') {
+      return '暂停';
+    }
+    if (this.filter === 'error') {
+      return '异常';
+    }
+    return '全部';
   }
 
   /** 启用/暂停。busyId 非空时直接返回，拦掉连点 */
@@ -133,20 +186,37 @@ struct CronPage {
     }
   }
 
+  /**
+   * 顶部统计项。可点击 → 按该状态过滤列表；当前选中的高亮，再点一次取消。
+   *
+   * @param key 过滤键：all | enabled | paused | error
+   *
+   * ⚠️ 选中态必须**在 @Builder 内部读 `this.filter`**，不能靠外部传进来的
+   *    `active: boolean` 参数 —— `@Builder` 的参数是值传递，参数变了这块
+   *    不会重新渲染（实测：过滤明明生效、底部说明也变了，但高亮一直停在
+   *    初始项）。内部直接读父组件 `@State` 才会随状态变化重渲染。
+   */
   @Builder
-  OverviewRow(label: string, value: string, color: string) {
+  OverviewRow(key: string, label: string, value: string, color: string) {
     Column() {
       Text(value)
         .fontSize(22)
         .fontWeight(FontWeight.Bold)
-        .fontColor(color)
-      Text(label)
+        .fontColor(this.filter === key ? '#5B5BD6' : color)
+      Text(this.filter === key ? ('• ' + label) : label)
         .fontSize(11)
-        .fontColor('#999999')
+        .fontColor(this.filter === key ? '#5B5BD6' : '#999999')
         .margin({ top: 2 })
     }
     .layoutWeight(1)
     .alignItems(HorizontalAlign.Center)
+    .padding({ top: 8, bottom: 8 })
+    .backgroundColor(this.filter === key ? '#F0F0FF' : '#00000000')
+    .borderRadius(10)
+    .margin({ left: 4, right: 4 })
+    .onClick(() => {
+      this.setFilter(key);
+    })
   }
 
   @Builder
@@ -308,33 +378,64 @@ struct CronPage {
           }
           .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else {
-          // 概览
+          // 概览（可点击过滤；选中态在 OverviewRow 内部读 this.filter）
           Row() {
-            this.OverviewRow('总任务', String(this.jobs.length), '#1A1A2E')
-            this.OverviewRow('已启用', String(this.enabledCount), '#2E9E6B')
-            this.OverviewRow('暂停', String(this.jobs.length - this.enabledCount), '#C77A20')
-            this.OverviewRow('异常', String(this.errorCount), this.errorCount > 0 ? '#D93025' : '#BBBBBB')
+            this.OverviewRow('all', '总任务', String(this.jobs.length), '#1A1A2E')
+            this.OverviewRow('enabled', '已启用', String(this.enabledCount), '#2E9E6B')
+            this.OverviewRow('paused', '暂停', String(this.pausedCount), '#C77A20')
+            this.OverviewRow('error', '异常', String(this.errorCount),
+              this.errorCount > 0 ? '#D93025' : '#BBBBBB')
           }
           .width('100%')
-          .padding({ top: 14, bottom: 14 })
+          .padding({ top: 8, bottom: 8, left: 4, right: 4 })
           .backgroundColor('#FFFFFF')
 
-          List() {
-            ForEach(this.jobs, (j: CronJob, idx: number) => {
-              ListItem() {
-                this.JobRow(j, idx)
+          // 列表（用过滤后的 displayJobs）
+          if (this.displayJobs.length === 0) {
+            Column() {
+              Text('📭').fontSize(40)
+              Text('没有「' + this.filterLabel() + '」状态的任务')
+                .fontSize(14)
+                .fontColor('#999999')
+                .margin({ top: 8 })
+              if (this.filter !== 'all') {
+                Button() {
+                  Text('显示全部').fontSize(13).fontColor('#5B5BD6')
+                }
+                .height(34)
+                .backgroundColor('#F0F0FF')
+                .borderRadius(17)
+                .padding({ left: 16, right: 16 })
+                .margin({ top: 14 })
+                .onClick(() => {
+                  this.setFilter(this.filter);   // 再点一次同键 = 回到 all
+                })
               }
-            }, (j: CronJob) => j.id)
+            }
+            .width('100%')
+            .layoutWeight(1)
+            .justifyContent(FlexAlign.Center)
+          } else {
+            List() {
+              ForEach(this.displayJobs, (j: CronJob, idx: number) => {
+                ListItem() {
+                  this.JobRow(j, idx)
+                }
+              }, (j: CronJob) => j.id)
+            }
+            .width('100%')
+            .layoutWeight(1)
+            .divider({ strokeWidth: 1, color: '#EEEEF5' })
+            .scrollBar(BarState.Auto)
+            .edgeEffect(EdgeEffect.Spring)
           }
-          .width('100%')
-          .layoutWeight(1)
-          .divider({ strokeWidth: 1, color: '#EEEEF5' })
-          .scrollBar(BarState.Auto)
-          .edgeEffect(EdgeEffect.Spring)
 
-          Text('共 ' + this.jobs.length + ' 个任务 · 暂停中的任务需先启用才能手动执行')
+          Text(this.filter === 'all'
+            ? ('共 ' + this.jobs.length + ' 个任务 · 点上方数字可筛选 · 暂停中的任务需先启用才能手动执行')
+            : ('已筛选「' + this.filterLabel() + '」：' + this.displayJobs.length + ' 个 / 共 '
+               + this.jobs.length + ' 个 · 再点一次该数字取消筛选'))
             .fontSize(11)
-            .fontColor('#BBBBBB')
+            .fontColor(this.filter === 'all' ? '#BBBBBB' : '#5B5BD6')
             .width('100%')
             .textAlign(TextAlign.Center)
             .padding({ top: 8, bottom: 12 })
