@@ -19,7 +19,7 @@ const LOCAL_API_URL: string = 'http://192.168.3.87:8866';
 const PUBLIC_API_URL: string = 'https://xiaoq.xiao-q.com';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.0.7';
+const APP_VERSION: string = '2.0.8';
 
 @Entry
 @Component
@@ -285,8 +285,8 @@ struct ChatPage {
       // onDisconnect
       () => {
         console.info('WS disconnected');
-        // 如果流式回复进行中断线
-        if (this.isStreaming) {
+        // 如果流式回复进行中断线（!hasIndicator() 避免每次重连失败都重复插一条占位符）
+        if (this.isStreaming && !this.hasIndicator()) {
           // 方案三：保持 isStreaming 状态，不清除 streamContent，以便重连后断点续流
           this.isLoading = false;
           const indicatorMsg: ChatMessage = {
@@ -604,7 +604,7 @@ struct ChatPage {
             ListItem() {
               this.MessageBubble(message, index)
             }
-          }, (message: ChatMessage, index: number) => index.toString())
+          }, (message: ChatMessage, index: number) => `${index}-${message.content.length}-${message.content.substring(0, 16)}`)
 
           // 流式消息气泡
           ListItem() {
