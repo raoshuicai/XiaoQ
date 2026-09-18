@@ -187,14 +187,13 @@ struct CronPage {
   }
 
   /**
-   * 顶部统计项。可点击 → 按该状态过滤列表；当前选中的高亮，再点一次取消。
+   * 顶部统计项。可点击 → 按该状态过滤列表；当前选中的用底色高亮，再点一次取消。
    *
    * @param key 过滤键：all | enabled | paused | error
    *
    * ⚠️ 选中态必须**在 @Builder 内部读 `this.filter`**，不能靠外部传进来的
-   *    `active: boolean` 参数 —— `@Builder` 的参数是值传递，参数变了这块
-   *    不会重新渲染（实测：过滤明明生效、底部说明也变了，但高亮一直停在
-   *    初始项）。内部直接读父组件 `@State` 才会随状态变化重渲染。
+   *    布尔参数 —— `@Builder` 的参数是值传递，参数变了这块不会重新渲染
+   *    （实测：过滤明明生效、底部说明也变了，但高亮一直停在初始项）。
    */
   @Builder
   OverviewRow(key: string, label: string, value: string, color: string) {
@@ -203,7 +202,7 @@ struct CronPage {
         .fontSize(22)
         .fontWeight(FontWeight.Bold)
         .fontColor(this.filter === key ? '#5B5BD6' : color)
-      Text(this.filter === key ? ('• ' + label) : label)
+      Text(label)
         .fontSize(11)
         .fontColor(this.filter === key ? '#5B5BD6' : '#999999')
         .margin({ top: 2 })
@@ -211,6 +210,7 @@ struct CronPage {
     .layoutWeight(1)
     .alignItems(HorizontalAlign.Center)
     .padding({ top: 8, bottom: 8 })
+    // 选中态只靠底色 + 文字变色，不再加 • 前缀
     .backgroundColor(this.filter === key ? '#F0F0FF' : '#00000000')
     .borderRadius(10)
     .margin({ left: 4, right: 4 })
@@ -320,6 +320,13 @@ struct CronPage {
     .width('100%')
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
     .backgroundColor(idx % 2 === 0 ? '#FFFFFF' : '#F7F8FC')
+    .onClick(() => {
+      // 点整行进详情页（开关与「立即执行」按钮有自己的 onClick，不会冒泡到这里）
+      router.pushUrl({ url: 'pages/CronDetailPage', params: { jobId: j.id } })
+        .catch((e: Error) => {
+          this.showToast('打开详情失败：' + e.message);
+        });
+    })
   }
 
   build() {

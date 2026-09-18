@@ -6,7 +6,7 @@
  */
 
 import { rest } from '../core/HermesRest.ets';
-import { CronJob, ToggleResult, RunResult } from '../models/CronModels.ets';
+import { CronJob, CronJobDetail, CronOutput, ToggleResult, RunResult } from '../models/CronModels.ets';
 
 export class CronService {
   /** 列出全部任务（含已暂停），按下次执行时间排序 */
@@ -59,6 +59,103 @@ export class CronService {
     return r;
   }
 
+  /** 单个任务详情（含 prompt 全文与运行历史数） */
+  public async fetchDetail(id: string): Promise<CronJobDetail> {
+    const raw: Record<string, Object> = await rest.get(
+      '/api/cron/jobs/' + encodeURIComponent(id)
+    ) as Record<string, Object>;
+    return CronService.mapDetail(raw);
+  }
+
+  /** 该任务的运行输出列表（新→旧） */
+  public async fetchOutputs(id: string): Promise<CronOutput[]> {
+    const raw: Record<string, Object> = await rest.get(
+      '/api/cron/jobs/' + encodeURIComponent(id) + '/outputs'
+    ) as Record<string, Object>;
+    const out: CronOutput[] = [];
+    const arr: Object[] = (raw['items'] as Object[]) ?? [];
+    for (const item of arr) {
+      const r: Record<string, Object> = item as Record<string, Object>;
+      const o: CronOutput = new CronOutput();
+      o.name = CronService.str(r, 'name');
+      o.size = CronService.num(r, 'size');
+      o.mtime = CronService.num(r, 'mtime');
+      out.push(o);
+    }
+    return out;
+  }
+
+  /** 读一次运行的输出内容（服务端最多返回 200KB） */
+  public async fetchOutputContent(id: string, name: string): Promise<string> {
+    const raw: Record<string, Object> = await rest.get(
+      '/api/cron/jobs/' + encodeURIComponent(id) + '/outputs/' + encodeURIComponent(name)
+    ) as Record<string, Object>;
+    return CronService.str(raw, 'content');
+  }
+
+  /**
+   * 编辑任务（只放开 name / schedule）。
+   *
+   * ⚠️ 走 postOnce：这是写操作，重试可能造成重复更新。
+   * ⚠️ 服务端只接受 name / schedule 两个字段，其余字段（prompt、script、
+   *    no_agent 等）改动面大，继续在 Hermes 侧用 CLI 改更稳妥。
+   * ⚠️ 非法 schedule 表达式服务端会返 400 INVALID_SCHEDULE（含支持的格式说明）。
+   */
+  public async update(id: string, name: string, schedule: string): Promise<CronJobDetail> {
+    const body: Record<string, Object> = {};
+    if (name.length > 0) {
+      body['name'] = name;
+    }
+    if (schedule.length > 0) {
+      body['schedule'] = schedule;
+    }
+    const raw: Record<string, Object> = await rest.postOnce(
+      '/api/cron/jobs/' + encodeURIComponent(id) + '/update', body
+    ) as Record<string, Object>;
+    return CronService.mapDetail(raw);
+  }
+
+  private static mapDetail(r: Record<string, Object>): CronJobDetail {
+    const j: CronJobDetail = new CronJobDetail();
+    const base: CronJob = CronService.mapJob(r);
+    j.id = base.id;
+    j.name = base.name;
+    j.schedule = base.schedule;
+    j.enabled = base.enabled;
+    j.state = base.state;
+    j.nextRunAt = base.nextRunAt;
+    j.lastRunAt = base.lastRunAt;
+    j.lastStatus = base.lastStatus;
+    j.lastError = base.lastError;
+    j.deliver = base.deliver;
+    j.noAgent = base.noAgent;
+    j.script = base.script;
+
+    j.prompt = CronService.str(r, 'prompt');
+    j.scheduleKind = CronService.str(r, 'schedule_kind');
+    j.scheduleExpr = CronService.str(r, 'schedule_expr');
+    const rt: Object | undefined = r['repeat_times'];
+    j.repeatTimes = typeof rt === 'number' ? rt as number : -1;
+    j.repeatCompleted = CronService.num(r, 'repeat_completed');
+    j.createdAt = CronService.str(r, 'created_at');
+    j.pausedAt = CronService.str(r, 'paused_at');
+    j.pausedReason = CronService.str(r, 'paused_reason');
+    j.model = CronService.str(r, 'model');
+    j.provider = CronService.str(r, 'provider');
+    j.workdir = CronService.str(r, 'workdir');
+    j.runHistoryCount = CronService.num(r, 'run_history_count');
+
+    const skills: string[] = [];
+    const arr: Object[] = (r['skills'] as Object[]) ?? [];
+    for (const s of arr) {
+      if (typeof s === 'string') {
+        skills.push(s as string);
+      }
+    }
+    j.skills = skills;
+    return j;
+  }
+
   private static mapJob(r: Record<string, Object>): CronJob {
     const j: CronJob = new CronJob();
     j.id = CronService.str(r, 'id');
@@ -82,6 +179,11 @@ export class CronService {
       return v as string;
     }
     return '';
+  }
+
+  private static num(o: Record<string, Object>, key: string): number {
+    const v: Object | undefined = o[key];
+    return typeof v === 'number' ? v as number : 0;
   }
 }
 
