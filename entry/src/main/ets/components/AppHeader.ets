@@ -9,6 +9,8 @@
 export struct AppHeader {
   /** 点击 📁 → 跳文件页 */
   onFiles: () => void = () => {};
+  /** 点击 📊 → 跳 Token 用量页（S8） */
+  onTokens: () => void = () => {};
   /** 点击 ⚙️ → 打开设置面板 */
   onSettings: () => void = () => {};
 
@@ -19,6 +21,18 @@ export struct AppHeader {
         .fontWeight(FontWeight.Bold)
         .fontColor('#1A1A2E')
       Blank()
+      Button() {
+        Text('📊')
+          .fontSize(20)
+      }
+      .width(44)
+      .height(44)
+      .backgroundColor('#F0F0FF')
+      .borderRadius(22)
+      .margin({ right: 8 })
+      .onClick(() => {
+        this.onTokens();
+      })
       Button() {
         Text('📁')
           .fontSize(20)

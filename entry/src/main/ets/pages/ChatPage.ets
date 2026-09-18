@@ -27,7 +27,7 @@ import { SettingsPanel } from '../components/SettingsPanel.ets';
 import { approveService } from '../services/ApproveService.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.1.0';
+const APP_VERSION: string = '2.2.0';
 
 @Entry
 @Component
@@ -375,6 +375,11 @@ struct ChatPage {
         AppHeader({
           onFiles: () => {
             this.navigateToFiles();
+          },
+          onTokens: () => {
+            router.pushUrl({ url: 'pages/TokensPage' }).catch((e: Error) => {
+              this.showToast('跳转失败：' + e.message);
+            });
           },
           onSettings: () => {
             this.tempApiKey = this.apiKey;
