@@ -14,6 +14,7 @@ import { router } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
 import { notifyService, shortTime, badgeText } from '../services/NotifyService.ets';
 import { PushMessage } from '../models/NotifyModels.ets';
+import { NOTIFY_DETAIL_KEY } from './NotifyDetailPage.ets';
 import { rest } from '../core/HermesRest.ets';
 import { apiConfig } from '../core/ApiConfig.ets';
 
@@ -71,6 +72,23 @@ struct NotifyPage {
     } finally {
       this.busy = false;
     }
+  }
+
+  /**
+   * 打开通知详情（S16）。
+   *
+   * ⚠️ 用户在列表里只看得到 4 行摘要，点开必须能看到**完整内容** ——
+   *    原先的 onClick 只调 markOne()（标记已读），没有任何打开动作，
+   *    用户反馈"点进去只能看到一个预览"。
+   *    这里先标记已读、再把消息放进 AppStorage 交给详情页，最后跳转。
+   */
+  private openDetail(m: PushMessage): void {
+    AppStorage.setOrCreate(NOTIFY_DETAIL_KEY, m);
+    this.markOne(m);          // 不 await：跳转不该等网络
+    router.pushUrl({ url: 'pages/NotifyDetailPage' }).catch((e: Error) => {
+      console.info('open notify detail failed: ' + e.message);
+      promptAction.showToast({ message: '打开失败' });
+    });
   }
 
   private async markOne(m: PushMessage): Promise<void> {
@@ -244,7 +262,7 @@ struct NotifyPage {
                 .backgroundColor(idx % 2 === 0 ? '#FFFFFF' : '#F7F8FC')
                 .alignItems(VerticalAlign.Top)
                 .onClick(() => {
-                  this.markOne(m);
+                  this.openDetail(m);
                 })
               }
             }, (m: PushMessage) => String(m.id))
