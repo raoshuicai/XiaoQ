@@ -16,6 +16,8 @@ export interface ChatMessage {
   content: string;
   /** S4：消息唯一标识。旧数据没有此字段，迁移时按"索引+时间戳"补写 */
   msg_id?: string;
+  /** S21：消息时间（毫秒时间戳）。用于气泡上方的"当天=时:分 / 非当天=月-日 时:分" */
+  createdAt?: number;
 }
 
 /** LLM 上下文记录 —— 发请求时构建的历史 */

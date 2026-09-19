@@ -61,7 +61,8 @@ export class ChatService {
     const msg: ChatMessage = {
       role: role,
       content: content,
-      msg_id: this.newMsgId()
+      msg_id: this.newMsgId(),
+      createdAt: Date.now()        // S21：记下时间，气泡上方要显示
     };
     this.messages.push(msg);
     this.scheduleSave();

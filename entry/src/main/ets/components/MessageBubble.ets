@@ -10,6 +10,27 @@
 
 import { ChatMessage } from '../models/ChatModels.ets';
 
+/**
+ * 消息时间格式化（S21）。
+ * 规则（用户指定）：当天 → `HH:mm`；非当天 → `MM-DD HH:mm`（都是 24 小时制）。
+ */
+function fmtMsgTime(ms: number | undefined): string {
+  if (ms === undefined || ms <= 0) {
+    return '';
+  }
+  const d: Date = new Date(ms);
+  const now: Date = new Date();
+  const pad = (n: number): string => (n < 10 ? '0' + n : String(n));
+  const hhmm: string = pad(d.getHours()) + ':' + pad(d.getMinutes());
+  const sameDay: boolean = d.getFullYear() === now.getFullYear()
+    && d.getMonth() === now.getMonth()
+    && d.getDate() === now.getDate();
+  if (sameDay) {
+    return hhmm;
+  }
+  return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + hhmm;
+}
+
 @Component
 export struct MessageBubble {
   @Prop message: ChatMessage;
@@ -35,8 +56,16 @@ export struct MessageBubble {
               .fontSize(12)
               .fontColor('#5B5BD6')
               .fontWeight(FontWeight.Medium)
+            // S21：时间信息（当天=时:分 / 非当天=月-日 时:分）
+            if (fmtMsgTime(this.message.createdAt).length > 0) {
+              Text(fmtMsgTime(this.message.createdAt))
+                .fontSize(11)
+                .fontColor('#AAAAAA')
+                .margin({ left: 8 })
+            }
           }
           .margin({ bottom: 4 })
+          .width('100%')
         }
 
         Text(this.message.content)
@@ -44,6 +73,7 @@ export struct MessageBubble {
           .fontColor(this.message.role === 'user' ? '#FFFFFF' : '#1A1A2E')
           .lineHeight(22)
           .copyOption(CopyOptions.LocalDevice)
+          .width('100%')
       }
       .padding({ left: 14, right: 14, top: 10, bottom: 10 })
       .backgroundColor(this.message.role === 'user' ? '#5B5BD6' : '#FFFFFF')
@@ -52,7 +82,9 @@ export struct MessageBubble {
         radius: 4,
         color: this.message.role === 'user' ? 'rgba(91,91,214,0.2)' : 'rgba(0,0,0,0.06)'
       })
-      .constraintSize({ maxWidth: '80%' })
+      // S21：小Q 的答复占满整行宽度（用户反馈原来 80% 太窄、正文被挤）；
+      //     用户自己的消息保持 80%（气泡短、右对齐，与飞书一致）
+      .constraintSize({ maxWidth: this.message.role === 'assistant' ? '100%' : '80%' })
       .alignItems(HorizontalAlign.Start)
 
       if (this.message.role === 'assistant') {
@@ -60,6 +92,9 @@ export struct MessageBubble {
       }
     }
     .width('100%')
+    // S21：两边只留一点空白（原来靠气泡 maxWidth 留白，现在由外层 padding 控制）
+    .padding({ left: this.message.role === 'user' ? 12 : 6,
+               right: this.message.role === 'user' ? 6 : 12 })
     .margin({ top: 8, bottom: 4 })
     .justifyContent(FlexAlign.SpaceBetween)
     .alignItems(VerticalAlign.Top)

@@ -33,7 +33,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.9.6';
+const APP_VERSION: string = '2.9.7';
 
 @Entry
 @Component
@@ -120,6 +120,37 @@ struct ChatPage {
 
   private navigateToFiles(): void {
     router.pushUrl({ url: 'pages/FilesPage' });
+  }
+
+  // ─────────────────── S21：输入栏菜单栏（语音 / 图片 / 文件）───────────────────
+
+  /**
+   * 「语音」—— 需要服务端提供 ASR 接口。
+   *
+   * ⚠️ 现状（已查证 2026-09-19）：xiaoq-api **没有**语音识别接口，
+   *    Hermes 侧虽有一套火山 ASR 脚本，但没有暴露给 APP 的后端路由。
+   *    所以这里先给出明确提示，不做一个点了没反应的假按钮。
+   *    后端补上 `POST /api/asr`（接火山 AUC/流式）后，这里改成录音 → 上传 → 回填文本。
+   */
+  private onMenuVoice(): void {
+    this.showToast('语音输入需要服务端 ASR 接口，正在支持中');
+  }
+
+  /**
+   * 「图片」—— 需要服务端提供上传接口。
+   *
+   * ⚠️ 现状（已查证 2026-09-19）：模型侧是支持的（Gateway 默认 gemini-2.5-flash 多模态），
+   *    但 xiaoq-api **没有**文件/图片上传接口，图片无法进入消息体。
+   *    后端补上 `POST /api/upload`（存盘 + 返回可访问 URL）+ 消息支持多模态内容后，
+   *    这里改成选图 → 上传 → 以 image_url 形式发送。
+   */
+  private onMenuImage(): void {
+    this.showToast('图片消息需要服务端上传接口，正在支持中');
+  }
+
+  /** 「文件」—— 复用已有的知识库浏览页（Vault 里的 md/pdf 都能看）*/
+  private onMenuFile(): void {
+    this.navigateToFiles();
   }
 
   /**
@@ -639,12 +670,21 @@ struct ChatPage {
         .edgeEffect(EdgeEffect.Spring)
         .onClick(() => {})
 
-        // 输入区域（S6：抽为 InputBar 组件）
+        // 输入区域（S6：抽为 InputBar 组件；S21 加了下方菜单栏）
         InputBar({
           text: $inputText,
           loading: this.isLoading,
           onSend: () => {
             this.sendMessage();
+          },
+          onVoice: (): void => {
+            this.onMenuVoice();
+          },
+          onImage: (): void => {
+            this.onMenuImage();
+          },
+          onFile: (): void => {
+            this.onMenuFile();
           }
         })
 
