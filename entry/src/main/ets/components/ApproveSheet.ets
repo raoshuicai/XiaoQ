@@ -34,7 +34,11 @@ export struct ApproveSheet {
   @Prop inProgress: boolean = false;
   /** 用户选择回调，choice 取值：once / session / always / deny */
   onChoice: (choice: string) => void = () => {};
-  /** 点击遮罩关闭 */
+  /**
+   * 收起卡片（右上角 ✕ 触发）。
+   * S42：语义已改为"收起但可恢复"——由 host 调 approveService.postponeCurrent()，
+   * 用户可在「设置-审批历史」里重新打开继续审批。
+   */
   onDismiss: () => void = () => {};
 
   /** S11：是否处于「始终允许」的二次确认态 */
@@ -85,6 +89,20 @@ export struct ApproveSheet {
           }
           .alignItems(HorizontalAlign.Start)
           .layoutWeight(1)
+
+          // S42：右上角 ✕ —— 唯一的关闭入口。
+          // 收起后审批**不会丢**，可在「设置-审批历史」里重新打开继续处理。
+          Text('✕')
+            .fontSize(16)
+            .fontColor($r('app.color.text_secondary'))
+            .width(32)
+            .height(32)
+            .textAlign(TextAlign.Center)
+            .borderRadius(16)
+            .backgroundColor($r('app.color.bg_input'))
+            .onClick(() => {
+              this.onDismiss();
+            })
         }
         .width('100%')
         .margin({ bottom: 12 })
@@ -259,8 +277,11 @@ export struct ApproveSheet {
     .height('100%')
     .backgroundColor($r('app.color.scrim'))
     .justifyContent(FlexAlign.End)
+    // S42：**故意改成空实现** —— 点空白不再关卡片。
+    // 原先点一下就把审批丢弃（且写进 handled 黑名单 → 永久失联），
+    // 现在关闭只有一条路径：卡片右上角 ✕（走可恢复的 postponeCurrent）。
     .onClick(() => {
-      this.onDismiss();
+      // 吞掉点击，不做任何事
     })
   }
 }

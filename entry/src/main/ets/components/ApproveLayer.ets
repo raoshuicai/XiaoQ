@@ -154,7 +154,8 @@ export struct ApproveLayer {
                 .layoutWeight(1).height(44).backgroundColor($r('app.color.bg_input')).borderRadius(10)
                 .margin({ left: 6 })
                 .onClick(() => {
-                  approveService.dismissCurrent();
+                  // S42：收起但不放弃，可在「设置-审批历史」里找回
+                  approveService.postponeCurrent();
                 })
               }
               .width('100%')
@@ -168,9 +169,10 @@ export struct ApproveLayer {
           .height('100%')
           .backgroundColor($r('app.color.scrim'))
           .justifyContent(FlexAlign.End)
-          .onClick(() => {
-            approveService.dismissCurrent();
-          })
+          // S42：**故意不挂 onClick**。
+          // 原先这里点一下就把审批丢弃（且打进 handled 黑名单 → 永久失联）。
+          // 现在闭卡只有一条路径：卡片内的「✕」，且那走的是可恢复的
+          // postponeCurrent()。点空白不再产生任何后果。
         } else {
           ApproveSheet({
             command: this.reqCommand,
@@ -183,7 +185,8 @@ export struct ApproveLayer {
               this.choose(choice);
             },
             onDismiss: () => {
-              approveService.dismissCurrent();
+              // S42：卡片右上角 ✕ / 点空白 → 收起但不放弃
+              approveService.postponeCurrent();
             }
           })
         }

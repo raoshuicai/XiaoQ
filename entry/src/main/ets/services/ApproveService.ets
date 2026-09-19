@@ -36,6 +36,26 @@ export class ApproveRequest {
   handledAt: number = 0;
 }
 
+/**
+ * S42：服务端未处理审批（GET /api/approvals/pending 的 items 元素）。
+ * 字段名与 xiaoq-api 保持一致（snake_case）。
+ */
+export interface ServerPendingItem {
+  run_id: string;
+  command: string;
+  description: string;
+  pattern_keys: string[];
+  session_id: string;
+  created_at: number;
+  age_s: number;
+  expired: boolean;
+}
+
+export interface ServerPendingResp {
+  items: ServerPendingItem[];
+  count: number;
+}
+
 /** 历史最多保留条数 */
 const HISTORY_MAX: number = 20;
 const PREF_STORE: string = 'xiaoq_approve';
@@ -109,8 +129,12 @@ export class ApproveService {
     this.notify();
   }
 
-  /** 把一次处理结果写入历史 */
-  private async record(req: ApproveRequest, choice: string): Promise<void> {
+  /**
+   * 把一条记录写入历史。
+   * @param isHandled true=已处理（记 handledAt）；false=待处理（handledAt 留 0，
+   *        这样「审批历史」能把它识别出来并允许重新打开）
+   */
+  private async record(req: ApproveRequest, choice: string, isHandled: boolean): Promise<void> {
     const entry: ApproveRequest = new ApproveRequest();
     entry.runId = req.runId;
     entry.command = req.command;
@@ -119,19 +143,55 @@ export class ApproveService {
     entry.sessionId = req.sessionId;
     entry.receivedAt = req.receivedAt;
     entry.choice = choice;
-    entry.handledAt = Date.now();
+    entry.handledAt = isHandled ? Date.now() : 0;
 
     const out: ApproveRequest[] = [entry];
     for (const h of this.history) {
-      if (h.runId !== entry.runId) {
+      // 同一个 run+command 只留最新一条
+      if (!(h.runId === entry.runId && h.command === entry.command)) {
         out.push(h);
       }
-      if (out.length >= HISTORY_MAX) {
+      if (out.length >= HISTORY_MAX && isHandled) {
         break;
       }
     }
     this.history = out;
+    this.trimHistory();
     await this.persist();
+  }
+
+  /**
+   * S42：裁剪历史，但**待处理的条目优先保留**。
+   * 理由：待处理是"活的"（用户还能继续审批），历史记录是"死的"（仅供回顾），
+   * 不该因为回顾记录多就把还能操作的挤掉。
+   */
+  private trimHistory(): void {
+    if (this.history.length <= HISTORY_MAX) {
+      return;
+    }
+    const pending: ApproveRequest[] = [];
+    const reviewed: ApproveRequest[] = [];
+    for (const h of this.history) {
+      if (h.choice === 'postponed') {
+        pending.push(h);
+      } else {
+        reviewed.push(h);
+      }
+    }
+    const out: ApproveRequest[] = [];
+    for (const h of pending) {
+      if (out.length >= HISTORY_MAX) {
+        break;
+      }
+      out.push(h);
+    }
+    for (const h of reviewed) {
+      if (out.length >= HISTORY_MAX) {
+        break;
+      }
+      out.push(h);
+    }
+    this.history = out;
   }
 
   /**
@@ -249,7 +309,7 @@ export class ApproveService {
       this.current = null;
       this.inProgress = false;
       this.promoteIfIdle();
-      await this.record(req, choice);     // S11：记入历史
+      await this.record(req, choice, true);   // S11：记入历史（已处理）
       this.notify();
       return true;
     } catch (e) {
@@ -268,17 +328,168 @@ export class ApproveService {
     }
   }
 
-  /** 用户点遮罩关闭（仅收起 UI，请求仍留在队列，超时由服务端处理） */
-  public dismissCurrent(): void {
+  /**
+   * S42：收起卡片，但**不放弃**这条审批。
+   *
+   * ⚠️ 这是本文件最重要的一处修复。原先的 `dismissCurrent()` 会把
+   *    `runId|command` 写进 `handled` 黑名单，而 `push()` 的第一道闸就是
+   *    `if (this.handled.indexOf(key) >= 0) return;` ——
+   *    后果是：误触一次，服务端重放救不回来，本地也无法恢复，
+   *    而服务端 `_pending_approvals` 还在等 5 分钟 → 用户看到的就是"APP 一直卡着"。
+   *
+   * 现在改为：
+   *   · 不进 handled 黑名单（所以随时能恢复）
+   *   · 记入历史，choice='postponed' 且 handledAt=0（「审批历史」页据此显示"待处理"并允许点开继续审批）
+   *   · 单次调用的去重仍由 push() 的 current/queue 检查负责，不受影响
+   */
+  public async postponeCurrent(): Promise<void> {
     const req: ApproveRequest | null = this.current;
-    if (req !== null) {
-      this.handled.push(this.dedupKey(req.runId, req.command));
-      this.record(req, 'dismissed');    // S11：关闭也算一次记录
+    if (req === null) {
+      return;
     }
     this.current = null;
     this.inProgress = false;
     this.promoteIfIdle();
+    await this.record(req, 'postponed', false);
     this.notify();
+  }
+
+  /** S42：未处理的审批（「审批历史」页的"待处理"区） */
+  public getPostponed(): ApproveRequest[] {
+    const out: ApproveRequest[] = [];
+    for (const h of this.history) {
+      if (h.choice === 'postponed') {
+        out.push(h);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * S42：从审批历史里重新打开一条待处理的审批 —— 让用户"点开继续执行审批动作"。
+   * 返回是否成功（找不到该记录时 false）。
+   */
+  public reopen(runId: string): boolean {
+    let idx: number = -1;
+    for (let i = 0; i < this.history.length; i++) {
+      const h: ApproveRequest = this.history[i];
+      if (h.runId === runId && h.choice === 'postponed') {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0) {
+      return false;
+    }
+    const entry: ApproveRequest = this.history[idx];
+
+    // 从历史摘掉（它马上回到展示位）
+    const kept: ApproveRequest[] = [];
+    for (let i = 0; i < this.history.length; i++) {
+      if (i !== idx) {
+        kept.push(this.history[i]);
+      }
+    }
+    this.history = kept;
+
+    // 兜底清黑名单：万一这条曾被旧版 dismissCurrent 拉黑过
+    const key: string = this.dedupKey(entry.runId, entry.command);
+    const hi: number = this.handled.indexOf(key);
+    if (hi >= 0) {
+      this.handled.splice(hi, 1);
+    }
+
+    // 重建请求（保留原始收到时间，便于卡片显示"什么时候来的"）
+    const req: ApproveRequest = new ApproveRequest();
+    req.runId = entry.runId;
+    req.command = entry.command;
+    req.patterns = entry.patterns;
+    req.description = entry.description;
+    req.sessionId = entry.sessionId;
+    req.receivedAt = entry.receivedAt;
+
+    this.queue.unshift(req);
+    this.promoteIfIdle();
+    this.persist();
+    this.notify();
+    return true;
+  }
+
+  /**
+   * S42：从服务端补齐未处理的审批（启动 / 回到前台时各拉一次）。
+   *
+   * ⚠️ 只写进「审批历史」的待处理区，**不自动弹卡片**：
+   *    用户刚主动收起过的卡片，重连时又弹出来是骚扰。
+   *    这里保证的是"在 设置-审批历史 里能找到"，弹不弹由用户点开决定。
+   *
+   * @returns 新增的条数（0 表示没有需要补的）
+   */
+  public async syncFromServer(): Promise<number> {
+    try {
+      const raw: Object = await rest.get('/api/approvals/pending');
+      const resp: ServerPendingResp = raw as ServerPendingResp;
+      const list: ServerPendingItem[] = resp.items;
+      if (list === undefined || list === null) {
+        return 0;
+      }
+      let added: number = 0;
+      for (const it of list) {
+        const key: string = this.dedupKey(it.run_id, it.command);
+        // 正在展示 / 已在队列 → 跳过
+        if (this.current !== null
+            && this.dedupKey(this.current.runId, this.current.command) === key) {
+          continue;
+        }
+        let busy: boolean = false;
+        for (const q of this.queue) {
+          if (this.dedupKey(q.runId, q.command) === key) {
+            busy = true;
+            break;
+          }
+        }
+        if (busy) {
+          continue;
+        }
+        // 已明确处理过（用户选了选项）→ 不复活
+        if (this.handled.indexOf(key) >= 0) {
+          continue;
+        }
+        // 已经在待处理列表里 → 不重复写
+        let exists: boolean = false;
+        for (const h of this.history) {
+          if (h.runId === it.run_id && h.choice === 'postponed') {
+            exists = true;
+            break;
+          }
+        }
+        if (exists) {
+          continue;
+        }
+
+        const entry: ApproveRequest = new ApproveRequest();
+        entry.runId = it.run_id;
+        entry.command = it.command;
+        entry.patterns = it.pattern_keys;
+        entry.description = it.description;
+        entry.sessionId = it.session_id;
+        entry.receivedAt = Math.round(it.created_at * 1000);
+        entry.choice = 'postponed';
+        entry.handledAt = 0;
+        this.history.unshift(entry);
+        added++;
+      }
+      if (added > 0) {
+        this.trimHistory();
+        await this.persist();
+        this.notify();
+        console.info('approve syncFromServer: 补回 ' + added + ' 条未处理审批');
+      }
+      return added;
+    } catch (e) {
+      // 启动早期 rest 可能还没配好 → 静默，下次回前台会重试
+      console.info('approve syncFromServer skipped: ' + (e as Error).message);
+      return 0;
+    }
   }
 
   /** 订阅变更，返回取消订阅的闭包 */
@@ -324,6 +535,9 @@ export function choiceLabel(choice: string): string {
   }
   if (choice === 'deny') {
     return '拒绝';
+  }
+  if (choice === 'postponed') {
+    return '待处理';
   }
   if (choice === 'dismissed') {
     return '未处理（关闭）';

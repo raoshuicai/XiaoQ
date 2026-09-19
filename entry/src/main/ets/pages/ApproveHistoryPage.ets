@@ -12,6 +12,7 @@
 import { router } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
 import { approveService, choiceLabel, clockText, ApproveRequest } from '../services/ApproveService.ets';
+import { ApproveLayer } from '../components/ApproveLayer.ets';
 
 @Entry
 @Component
@@ -24,7 +25,28 @@ struct ApproveHistoryPage {
   }
 
   onPageShow(): void {
-    this.refresh();
+    // S42：本页也登记为「审批可展示页」——点「继续处理」后卡片直接在本页弹出，
+    // 不必先返回聊天页；同时补拉一次服务端未处理的审批。
+    approveService.setActivePage('approvehistory');
+    approveService.syncFromServer().catch((e: Error) => {
+      console.info('approve history sync skipped: ' + e.message);
+    }).then((): void => {
+      this.refresh();
+    });
+  }
+
+  onPageHide(): void {
+    approveService.clearActivePage('approvehistory');
+  }
+
+  /** S42：点「继续处理」→ 把待处理的审批重新激活成可操作的卡片 */
+  private doReopen(runId: string): void {
+    if (approveService.reopen(runId)) {
+      this.refresh();
+      this.showToast('已重新打开，请在上方卡片中处理');
+    } else {
+      this.showToast('该审批已无法恢复');
+    }
   }
 
   private refresh(): void {
@@ -79,6 +101,9 @@ struct ApproveHistoryPage {
       return $r('app.color.danger');
     }
     if (c === 'always') {
+      return $r('app.color.warning');
+    }
+    if (c === 'postponed') {
       return $r('app.color.warning');
     }
     if (c === 'dismissed') {
@@ -137,6 +162,7 @@ struct ApproveHistoryPage {
         // 筛选
         Row() {
           this.FilterChip('all', '全部')
+          this.FilterChip('postponed', '待处理')
           this.FilterChip('once', '仅本次')
           this.FilterChip('session', '会话')
           this.FilterChip('always', '始终允许')
@@ -212,13 +238,38 @@ struct ApproveHistoryPage {
                       .width('100%')
                       .margin({ top: 6 })
                   }
+
+                  // S42：待处理的审批 → 给「继续处理」入口，点开即恢复成可操作的卡片
+                  if (it.choice === 'postponed') {
+                    Row() {
+                      Button() {
+                        Text('继续处理')
+                          .fontSize(13)
+                          .fontColor($r('app.color.text_on_brand'))
+                      }
+                      .height(34)
+                      .backgroundColor($r('app.color.brand'))
+                      .borderRadius(8)
+                      .onClick(() => {
+                        this.doReopen(it.runId);
+                      })
+
+                      Text('未提交的授权请求，可重新打开')
+                        .fontSize(10)
+                        .fontColor($r('app.color.text_tertiary'))
+                        .layoutWeight(1)
+                        .textAlign(TextAlign.End)
+                    }
+                    .width('100%')
+                    .margin({ top: 10 })
+                  }
                 }
                 .width('100%')
                 .padding({ left: 16, right: 16, top: 12, bottom: 12 })
                 .backgroundColor(idx % 2 === 0 ? $r('app.color.text_on_brand') : $r('app.color.bg_page'))
                 .alignItems(HorizontalAlign.Start)
               }
-            }, (it: ApproveRequest) => it.runId + '_' + it.handledAt)
+            }, (it: ApproveRequest) => it.runId + '_' + it.choice + '_' + it.handledAt)
           }
           .width('100%')
           .layoutWeight(1)
@@ -238,6 +289,17 @@ struct ApproveHistoryPage {
       .width('100%')
       .height('100%')
       .backgroundColor($r('app.color.bg_page'))
+
+      // S42：审批浮层 —— 点「继续处理」后卡片在本页直接弹出。
+      // ⚠️ 必须放在 Stack **内部**：@Entry 组件 build() 只允许一个根节点，
+      //    写成 Stack 的兄弟节点会报 "can have only one root node"。
+      ApproveLayer({
+        pageName: 'approvehistory',
+        onResult: (ok: boolean, choice: string): void => {
+          this.refresh();
+          this.showToast(ok ? ('已提交：' + choiceLabel(choice)) : '提交失败，请重试');
+        }
+      })
     }
     .width('100%')
     .height('100%')

@@ -36,7 +36,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.1.0';
+const APP_VERSION: string = '3.2.0';
 
 @Entry
 @Component
@@ -482,6 +482,11 @@ struct ChatPage {
     this.pageVisible = true;
     // S7：登记本页为「审批可展示页」——只有前台页面会渲染审批卡片
     approveService.setActivePage('chat');
+    // S42：回前台时补拉服务端未处理的审批，写进「审批历史」待处理区。
+    // 误触收起 / 切页面 / 断连期间丢掉的卡片，都靠这一步找回来。
+    approveService.syncFromServer().catch((e: Error) => {
+      console.info('sync pending approvals skipped: ' + e.message);
+    });
     // S9：回到前台刷新未读数（通知页可能刚标过已读）
     notifyService.refreshUnread().catch((e: Error) => {
       console.info('unread refresh failed: ' + e.message);
