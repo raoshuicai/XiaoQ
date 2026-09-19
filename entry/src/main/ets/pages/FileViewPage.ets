@@ -1,9 +1,8 @@
 import { router } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
-import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { webview } from '@kit.ArkWeb';
-import { fileIo } from '@kit.CoreFileKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { FileApi, RenderedFile } from '../utils/FileApi.ets';
 // S5：网络检测收口到 ApiConfig，REST 客户端收口到 HermesRest
 import { apiConfig } from '../core/ApiConfig.ets';
@@ -28,6 +27,8 @@ struct FileViewPage {
 
   private fileApi: FileApi = new FileApi();
   private filePath: string = '';
+  /** S17：内容是否已灌进 Web（onPageEnd 会重复触发，用它保证只灌一次）*/
+  private htmlLoaded: boolean = false;
   private webCtl: webview.WebviewController = new webview.WebviewController();
 
   /**
@@ -117,32 +118,29 @@ struct FileViewPage {
   /**
    * 把 HTML 灌进 Web 组件。
    *
-   * ⚠️ 走"写沙箱文件 + loadUrl(file://)"而不是 controller.loadData()：
-   *    loadData 在本机实测**完全不渲染**（服务端日志确认 render=html 已 200 返回、
-   *    数据也拿到了，但 Web 区域始终白屏；src 给 '' 或 'about:blank' 都一样）。
-   *    落盘再 loadUrl 是更可靠的路子，也顺带支持大文档（某些实现里 data: URL 有长度上限）。
+   * ⚠️ 必须传满 5 个参数（后两个给空格）—— 这是本功能最关键的一行：
+   *    loadData(data, mimeType, encoding, baseUrl?, historyUrl?)
+   *    baseUrl 缺省时，HTML 里 CSS 的 `#` 颜色值（#333 / #fff 等）会被当作
+   *    URL 的 fragment 解析 → 样式崩掉 → **整个 Web 区域白屏，且完全不报错**。
+   *    我们的 HTML 是自带 <style> 的完整文档（必然含大量 `#`），所以必须传。
+   *
+   * ⚠️ 曾经走过弯路：改成"写沙箱文件 + loadUrl('file://')"依然白屏 ——
+   *    因为问题不在加载方式，而在 `#` 的解析歧义（file:// 下同样存在），
+   *    而且那条路还额外引入 fileAccess 权限等变量。已回退。
    */
   private pushHtml(): void {
     if (this.htmlContent.length === 0) {
+      hilog.error(0x0001, 'S17', 'pushHtml: htmlContent is EMPTY, nothing to load');
       return;
     }
     try {
-      const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
-      const fp: string = ctx.filesDir + '/doc_preview.html';
-      const f: fileIo.File = fileIo.openSync(fp,
-        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
-      fileIo.writeSync(f.fd, this.htmlContent);
-      fileIo.closeSync(f);
-      this.webCtl.loadUrl('file://' + fp);
-      console.info('[S17] loadUrl file://' + fp + ' len=' + this.htmlContent.length);
+      // 诊断：把实际要加载的内容长度与前 80 字符记进 hilog（console.info 不进日志）
+      hilog.error(0x0001, 'S17', 'loadData len=%{public}d head=%{public}s',
+        this.htmlContent.length, this.htmlContent.substring(0, 80));
+      this.webCtl.loadData(this.htmlContent, 'text/html', 'UTF-8', ' ', ' ');
     } catch (e) {
-      console.info('[S17] pushHtml failed: ' + (e as Error).message);
-      // 兜底：落盘失败就直接试着用 loadData
-      try {
-        this.webCtl.loadData(this.htmlContent, 'text/html', 'UTF-8');
-      } catch (e2) {
-        console.info('[S17] loadData fallback failed too');
-      }
+      hilog.error(0x0001, 'S17', 'loadData THREW: %{public}s', (e as Error).message);
+      this.showToast('文档渲染失败');
     }
   }
 
@@ -172,9 +170,7 @@ struct FileViewPage {
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .onClick(() => {
-              // 诊断用：点标题显示当前加载状态（html 长度 / 是否渲染模式）
-              this.showToast('html=' + this.htmlContent.length + ' text=' + this.fileContent.length
-                + (this.isMarkdown ? ' [md]' : ' [txt]'));
+              this.showToast(this.fileName);
             })
 
           Blank()
@@ -215,15 +211,23 @@ struct FileViewPage {
           // ⚠️ src 给 'about:blank' 而不是 '' —— 空字符串会让 Web 组件不进入可用状态，
           //    onControllerAttached 里灌进去的内容不显示（实测白屏）。
           Web({ src: 'about:blank', controller: this.webCtl })
-            .onControllerAttached(() => {
-              this.pushHtml();
-            })
             .onPageEnd(() => {
-              console.info('[S17] web page end, html length=' + this.htmlContent.length);
+              // ⚠️ 真正的根因在这里：**不能在 onControllerAttached 里 loadData**。
+              //    那一刻 Web 尚未准备好接收内容，loadData 会被**静默丢弃**（无报错、无异常，
+              //    表现为白屏）。实测对比：同样的调用放在这里就正常，放在 onControllerAttached 就白屏。
+              //    ⚠️ onPageEnd 会重复触发（about:blank 加载完一次、loadData 内容加载完又一次），
+              //    必须用标志位保证只灌一次，否则会自激循环。
+              if (!this.htmlLoaded && this.htmlContent.length > 0) {
+                this.htmlLoaded = true;
+                this.pushHtml();
+              }
+              hilog.error(0x0001, 'S17', 'onPageEnd htmlLoaded=%{public}s len=%{public}d',
+                String(this.htmlLoaded), this.htmlContent.length);
             })
             .onErrorReceive((e) => {
               if (e !== undefined) {
-                console.info('[S17] web error: ' + JSON.stringify(e.error));
+                hilog.error(0x0001, 'S17', 'onErrorReceive: %{public}s',
+                  JSON.stringify(e.error));
               }
             })
             .width('100%')
