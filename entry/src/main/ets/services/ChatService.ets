@@ -135,6 +135,35 @@ export class ChatService {
     return false;
   }
 
+  /**
+   * 清除所有「恢复中」占位符（APP 启动时调用）。
+   *
+   * ⚠️ 判据为什么成立：占位符只在**流中断的当下**被插入。APP 启动时从本地缓存
+   *    加载到的占位符，必然是**上一次运行遗留**的 —— 那一轮流早就没了（进程都重启了），
+   *    留着只会让界面永久卡在「正在恢复连接」（实测 app-ba0fbf3a7f / app-6615... 各挂一条）。
+   *
+   * ⚠️ 为什么不在切会话时也清：切会话发生在同一次运行内，此时占位符可能是**刚刚**因
+   *    网络抖动插入的、流还活着，清掉会让用户丢失"正在恢复"的反馈。所以只在启动时清。
+   *
+   * 比"发 sync_pending 问服务端"可靠：不依赖 WS 连接状态、服务端响应和时序
+   * （那套试过，三次都没触发 —— ChatWsBridge 的连接事件只在连上那一瞬调一次，
+   *  自检永远赶不上）。
+   */
+  public purgeIndicators(): number {
+    let removed: number = 0;
+    for (let i: number = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].content.startsWith(PLACEHOLDER_PREFIX)) {
+        this.messages.splice(i, 1);
+        removed++;
+      }
+    }
+    if (removed > 0) {
+      this.scheduleSave();
+      console.info('[ChatService] 启动清理：移除 ' + removed + ' 条遗留占位符');
+    }
+    return removed;
+  }
+
   // ─────────────────────── LLM 上下文构建 ───────────────────────
 
   /**

@@ -33,7 +33,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.7.8';
+const APP_VERSION: string = '2.8.0';
 
 @Entry
 @Component
@@ -304,6 +304,14 @@ struct ChatPage {
         this.engine?.bindSession(this.activeSessionId);
         chatService.bind(ctx, this.activeSessionId);
       }
+      // 启动清理：上次运行遗留的「恢复中」占位符直接删掉。
+      // （占位符是持久化在消息列表里的，而 pendingIndicator 是内存态重启即丢，
+      //   没人再去问服务端 → 界面永久卡在"正在恢复连接"。详见 ChatService.purgeIndicators）
+      chatService.loadSaved().then((): void => {
+        if (chatService.purgeIndicators() > 0) {
+          this.syncMessages();
+        }
+      });
       console.info('Device ID: ' + deviceId + ' | session: ' + this.activeSessionId);
       return loadApiKey(ctx);
     }).then((savedKey: string) => {
@@ -319,25 +327,8 @@ struct ChatPage {
         // 建立WebSocket长连接
         this.setupWebSocket(detectedUrl);
 
-        // 启动自检：消息列表里是否残留「恢复中」占位符（上次流中断 / APP 被杀留下的）。
-        // ⚠️ 必须在这里处理：占位符是**持久化**在消息列表里的，而 engine.pendingIndicator
-        //    是内存态、重启即丢 —— 不主动标记的话，没人会再去问服务端，占位符永久留存
-        //    （实测：会话一直显示「⏳ 正在恢复连接」）。
-        // ⚠️ 注意时序：`handleConnected()` 只在 WS **刚连上那一刻**被调一次，而这里在它
-        //    之后才跑 —— 所以不能只依赖它，必须**自己直接发一次**探测。
-        //    服务端有活跃流 → 补发内容；没有 → 回 stream_missing → 页面删掉占位符。
-        //    延迟 2 秒是为了让 chatService.bind() 的异步加载先落地。
-        setTimeout((): void => {
-          if (chatService.hasIndicator()) {
-            console.info('startup: stale recovery indicator found, probing server');
-            this.engine?.noteStaleIndicator();
-            wsService.send({
-              type: 'sync_pending',
-              session_id: this.activeSessionId,
-              last_seq: -1
-            });
-          }
-        }, 2000);
+        // 启动自检（另见 probeStaleIndicator，onPageShow 里也会调一次）
+        setTimeout((): void => { this.probeStaleIndicator(); }, 2000);
 
         // S9：启动时同步一次未读数（服务端 DB 是单一数据源，AppStorage 只是缓存）
         notifyService.refreshUnread().catch((e: Error) => {
@@ -425,7 +416,48 @@ struct ChatPage {
           console.info('WS reconnected on foreground');
         });
       }
+      // 回到前台/切回本页时也自检一次残留占位符
+      setTimeout((): void => { this.probeStaleIndicator(); }, 1500);
     });
+  }
+
+  /**
+   * 探测消息列表里残留的「恢复中」占位符，并设法清掉。
+   *
+   * ⚠️ 为什么需要：占位符是**持久化在消息列表里**的一条消息（流中断/APP 被杀时插入），
+   *    而判定"要不要去问服务端"的 engine.pendingIndicator 是**内存态**，重启即丢 ——
+   *    于是没人再去问，占位符永久留存（实测：会话 app-ba0fbf3a7f 一条占位符挂了很久）。
+   *
+   * ⚠️ 为什么不靠 WS 连接事件：`ChatWsBridge` 的 handleConnected() 只在 **WS 刚连上那一瞬**
+   *    被调一次，而自检通常在它之后才跑 —— 时序上永远赶不上（实测服务端只收到 ping）。
+   *    这里改成**自己直接发探测**。
+   *
+   * 兜底：服务端没回应（例如刚重启、offline_chats 里也没有）时，6 秒后直接把占位符删掉 ——
+   * 宁可少一条提示，也不能让界面永久卡在「正在恢复连接」。
+   */
+  private probeStaleIndicator(): void {
+    if (!chatService.hasIndicator()) {
+      return;
+    }
+    if (!wsService.isConnected()) {
+      return;   // 等连上再说，连不上就不动（避免误删）
+    }
+    console.info('probing stale indicator for ' + this.activeSessionId);
+    this.engine?.noteStaleIndicator();
+    wsService.send({
+      type: 'sync_pending',
+      session_id: this.activeSessionId,
+      last_seq: -1
+    });
+    setTimeout((): void => {
+      if (chatService.hasIndicator()) {
+        console.info('probe got no stream -> removing stale indicator');
+        chatService.removeIndicator();
+        this.isStreaming = false;
+        this.isLoading = false;
+        this.syncMessages();
+      }
+    }, 6000);
   }
 
   /**
@@ -685,6 +717,9 @@ struct ChatPage {
         // S12：本地没有（换过设备 / 重装 / 从没聊过）-> 去服务端拉历史
         this.loadHistoryFromServer(sid);
       }
+      // 切进来的会话若残留「恢复中」占位符，也探一次（每个会话各有独立缓存，
+      // 启动自检只覆盖当时那个会话，实测 app-6615... 里也挂着一条）
+      setTimeout((): void => { this.probeStaleIndicator(); }, 1200);
     });
   }
 
