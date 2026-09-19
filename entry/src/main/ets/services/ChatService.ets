@@ -164,6 +164,29 @@ export class ChatService {
     return removed;
   }
 
+  /**
+   * 最近一条 assistant 消息是否就是这段内容（S19 去重）。
+   *
+   * ⚠️ 为什么需要：同一份回复可能走两条路进 APP ——
+   *    ① APP 重连后 `GET /api/sessions/{id}/messages` 拉历史（其中已含该回复）
+   *    ② `sync_pending` 命中 offline_chats 补投
+   *    两者都到就会渲染出**两条一模一样的回复**（实测会话 app-42015772fca4497d）。
+   *    服务端已修（拉历史后清缓存），客户端这层是双保险。
+   */
+  public isLastAssistantSame(content: string): boolean {
+    const c: string = content.trim();
+    if (c.length === 0) {
+      return false;
+    }
+    for (let i: number = this.messages.length - 1; i >= 0; i--) {
+      const m: ChatMessage = this.messages[i];
+      if (m.role === 'assistant' && m.content.trim().length > 0) {
+        return m.content.trim() === c;
+      }
+    }
+    return false;
+  }
+
   // ─────────────────────── LLM 上下文构建 ───────────────────────
 
   /**

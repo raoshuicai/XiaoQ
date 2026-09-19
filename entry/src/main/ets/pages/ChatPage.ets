@@ -33,7 +33,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.9.4';
+const APP_VERSION: string = '2.9.5';
 
 @Entry
 @Component
@@ -177,8 +177,12 @@ struct ChatPage {
     };
     cb.onCompletion = (finalContent: string): void => {
       if (finalContent.length > 0) {
-        // 替换掉恢复提示（如果存在），只有没替换时才追加
-        if (!this.replaceIndicator(finalContent)) {
+        // S19：去重 —— 同一份回复可能已通过「拉历史」或「sync_pending 补投」进过列表，
+        // 再来一次就会出现两条一模一样的回复（实测）。
+        if (chatService.isLastAssistantSame(finalContent)) {
+          console.info('S19 duplicate completion ignored');
+        } else if (!this.replaceIndicator(finalContent)) {
+          // 替换掉恢复提示（如果存在），只有没替换时才追加
           chatService.append('assistant', finalContent);
           this.syncMessages();
         }
