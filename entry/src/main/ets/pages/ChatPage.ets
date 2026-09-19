@@ -33,7 +33,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.7.3';
+const APP_VERSION: string = '2.7.4';
 
 @Entry
 @Component
@@ -271,8 +271,14 @@ struct ChatPage {
     approveService.bind(ctx).catch((e: Error) => {
       console.info('approve history bind failed: ' + e.message);
     });
-    // S12：会话列表页要用的 Context（切换会话后重载消息）
+    // S12 修：会话列表页要用的 Context（切换会话后重载消息）
     this.appCtx = ctx;
+    // 注：曾尝试用 @kit.NetworkKit 的 connection.on('netConnectionStateChange') 做网络监听，
+    // 但该 API 在 API 24 的名字/类型已变化（connection.on / NetConnectionStateChangeInfo
+    // / NetConnectionState 均不存在），编译不过。当前改用两处主动自检覆盖同样场景：
+    //   1) sendMessage() 前调 ensureNetworkMatches()  —— 发消息这一刻一定自检
+    //   2) onPageShow() 里已有重连分支              —— 回到前台时自检
+    // 这能覆盖"切到 5G 后发消息没反应"这一实际场景。
     // 先获取固定设备 ID（用于 sync_pending 匹配离线缓存，重启后不变）
     getOrCreateDeviceId(ctx).then((deviceId: string) => {
       this.deviceId = deviceId;
@@ -377,13 +383,18 @@ struct ChatPage {
     if (this.deviceId === '') {
       return;
     }
-    if (!wsService.isConnected()) {
-      // 重新检测网络并重建WebSocket
-      this.detectApiUrl().then((detectedUrl: string) => {
-        this.setupWebSocket(detectedUrl);
-        console.info('WS reconnected on foreground');
-      });
-    }
+    // S12 修：**无条件自检一次网络**，而不是只看 isConnected()。
+    // 原因：WiFi→5G 切换后那条内网 TCP 已实际断开，但客户端可能尚未收到 close
+    // 事件、isConnected() 仍返回 true —— 于是不会重连，消息全进待发队列。
+    // 这里先比对 baseUrl 是否与当前网络一致，不一致就重连。
+    this.ensureNetworkMatches().then(() => {
+      if (!wsService.isConnected()) {
+        this.detectApiUrl().then((detectedUrl: string) => {
+          this.setupWebSocket(detectedUrl);
+          console.info('WS reconnected on foreground');
+        });
+      }
+    });
   }
 
   /**
@@ -415,11 +426,43 @@ struct ChatPage {
     }
   }
 
-  private sendMessage(): void {
+  /**
+   * S12 修（5G 切换问题）：发消息前校验当前网络与已配置的 baseUrl 是否仍匹配。
+   *
+   * 背景：WiFi → 5G 切换后，APP 不会重新检测网络，WS 仍粘在内网地址
+   * (`ws://192.168.3.87:8866`)；5G 下该地址不可达，连接一直重试失败，
+   * 消息全进 WsService 的待发队列 —— 用户看到的就是「发消息一直没反应」。
+   *
+   * 这里做的是「兜底自愈」：只要检测到的地址与当前不一致，就重新配置 + 重连，
+   * 之后消息会随重连从待发队列里发出去（WsService.drainPendingQueue）。
+   */
+  private async ensureNetworkMatches(): Promise<void> {
+    try {
+      const detected: string = await apiConfig.detect();
+      const current: string = apiConfig.getBaseUrl();
+      if (current === detected) {
+        return;
+      }
+      console.info('network changed: ' + current + ' -> ' + detected + ', reconnecting');
+      this.networkMode = apiConfig.getNetworkMode();
+      rest.configure(detected, apiConfig.getApiKey());
+      this.hermesApi.updateConfig(detected, this.apiKey);
+      wsService.close();
+      this.setupWebSocket(detected);
+      this.showToast('网络已切换，正在重连…');
+    } catch (e) {
+      console.info('ensureNetworkMatches failed: ' + this.errText(e));
+    }
+  }
+
+  private async sendMessage(): Promise<void> {
     const text: string = this.inputText.trim();
     if (text === '' || this.isLoading) {
       return;
     }
+
+    // S12 修：先确认网络与 baseUrl 仍然匹配（WiFi↔5G 切换后 WS 会粘在旧地址上）
+    await this.ensureNetworkMatches();
 
     if (this.apiKey === '') {
       this.showToast('请先配置API密钥');
