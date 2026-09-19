@@ -2,7 +2,7 @@ import { promptAction } from '@kit.ArkUI';
 import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { HermesApi } from '../utils/HermesApi.ets';
-import { saveApiKey, loadApiKey, getOrCreateDeviceId } from '../utils/PreferencesHelper.ets';
+import { saveApiKey, loadApiKey, getOrCreateDeviceId, loadActiveSessionId, saveActiveSessionId } from '../utils/PreferencesHelper.ets';
 // S2/S7：WS 事件订阅 + 协议分发下沉到 ChatWsBridge（连接控制仍在 wsService）
 import { chatWsBridge, WsBridgeHooks } from '../services/ChatWsBridge.ets';
 import { wsService } from '../services/WsService.ets';
@@ -33,7 +33,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.8.4';
+const APP_VERSION: string = '2.8.6';
 
 @Entry
 @Component
@@ -295,24 +295,33 @@ struct ChatPage {
       this.deviceId = deviceId;
       // S12：首次启动时若还没有活跃会话，默认用 deviceId 作为会话 ——
       // 兼容历史（以前 session_id 就是 device_id，老消息按 deviceId 存的）。
-      // 先 bind 再写 AppStorage，避免 @Watch 触发一次多余的重载把刚恢复的消息冲掉。
-      if (this.activeSessionId.length === 0) {
-        this.engine?.bindSession(deviceId);   // S3：把会话身份绑给状态机
-        chatService.bind(ctx, deviceId);      // S4：消息持久化按会话分 key
-        AppStorage.setOrCreate('activeSessionId', deviceId);
-      } else {
-        this.engine?.bindSession(this.activeSessionId);
-        chatService.bind(ctx, this.activeSessionId);
-      }
-      // 启动清理：上次运行遗留的「恢复中」占位符直接删掉。
-      // （占位符是持久化在消息列表里的，而 pendingIndicator 是内存态重启即丢，
-      //   没人再去问服务端 → 界面永久卡在"正在恢复连接"。详见 ChatService.purgeIndicators）
-      chatService.loadSaved().then((): void => {
-        if (chatService.purgeIndicators() > 0) {
-          this.syncMessages();
+      // 具体选哪个会话见下方 loadActiveSessionId 块的优先级说明。
+      // 启动时确定"进哪个会话"，优先级（S15）：
+      //   ① 本次运行内已切过的（AppStorage）—— 冷启动时为空
+      //   ② **上次退出时用的那个会话**（持久化）—— 跨重启记住用户的选择
+      //   ③ 都没有（首次安装 / 清过数据）→ 回退默认的 deviceId 会话
+      // ⚠️ 原先只判断 activeSessionId（内存态），重启必为空 → 每次都落到 ③，
+      //    用户每次打开都被扔回那个老的 deviceId 会话（实测反馈）。
+      loadActiveSessionId(ctx).then((savedSid: string) => {
+        let sid: string = this.activeSessionId.length > 0 ? this.activeSessionId : savedSid;
+        if (sid.length === 0) {
+          sid = deviceId;
         }
+        this.engine?.bindSession(sid);        // S3：把会话身份绑给状态机
+        chatService.bind(ctx, sid);           // S4：消息持久化按会话分 key
+        AppStorage.setOrCreate('activeSessionId', sid);
+        console.info('Device ID: ' + deviceId + ' | session: ' + sid
+          + (savedSid.length > 0 ? ' (restored from last used)' : ' (default)'));
+
+        // 启动清理：上次运行遗留的「恢复中」占位符直接删掉。
+        // （占位符是持久化在消息列表里的，而 pendingIndicator 是内存态重启即丢，
+        //   没人再去问服务端 → 界面永久卡在"正在恢复连接"。详见 ChatService.purgeIndicators）
+        chatService.loadSaved().then((): void => {
+          if (chatService.purgeIndicators() > 0) {
+            this.syncMessages();
+          }
+        });
       });
-      console.info('Device ID: ' + deviceId + ' | session: ' + this.activeSessionId);
       return loadApiKey(ctx);
     }).then((savedKey: string) => {
       if (savedKey !== '') {
@@ -781,6 +790,12 @@ struct ChatPage {
         chatService.bind(this.appCtx, sid);
       }
       AppStorage.setOrCreate('activeSessionId', sid);
+      // S15：新建会话拿到真实 ID 后落盘 —— 否则用户"开了新会话聊完再重启"会回到旧会话
+      if (this.appCtx !== null) {
+        saveActiveSessionId(this.appCtx, sid).catch((e: Error) => {
+          console.info('persist new session failed: ' + e.message);
+        });
+      }
       console.info('New session established: ' + sid);
     }
   }

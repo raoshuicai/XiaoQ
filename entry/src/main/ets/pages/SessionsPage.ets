@@ -15,8 +15,10 @@
 
 import { router } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 import { sessionService, relativeTime } from '../services/SessionService.ets';
 import { SessionItem } from '../models/SessionModels.ets';
+import { saveActiveSessionId } from '../utils/PreferencesHelper.ets';
 import { rest } from '../core/HermesRest.ets';
 import { apiConfig } from '../core/ApiConfig.ets';
 
@@ -157,6 +159,22 @@ struct SessionsPage {
     }
   }
 
+  /**
+   * 记住当前会话到持久层（S15）。
+   * ⚠️ 只写 AppStorage 不够 —— 那是内存态，APP 重启就丢，启动时会回退到默认会话。
+   *    切换会话 / 开新会话（置空）**两个动作都要落盘**，否则重启会回到切之前那个。
+   */
+  private persistActiveSession(sid: string): void {
+    try {
+      const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
+      saveActiveSessionId(ctx, sid).catch((e: Error) => {
+        console.info('persist active session failed: ' + e.message);
+      });
+    } catch (e) {
+      console.info('persist active session skipped');
+    }
+  }
+
   /** 选中某个会话 -> 写 AppStorage -> 返回聊天页 */
   private pick(s: SessionItem): void {
     if (this.activeSessionId === s.id) {
@@ -165,6 +183,7 @@ struct SessionsPage {
       return;
     }
     AppStorage.setOrCreate(ACTIVE_SESSION_KEY, s.id);
+    this.persistActiveSession(s.id);
     this.showToast('已切换到：' + s.displayTitle());
     router.back();
   }
@@ -172,8 +191,21 @@ struct SessionsPage {
   /** 新会话：置空，由服务端在下次发消息时生成 ID */
   private newSession(): void {
     AppStorage.setOrCreate(ACTIVE_SESSION_KEY, '');
+    // ⚠️ 这里**故意不落盘**：开新会话但还没发消息时没有 ID 可存；直接存空串会让
+    //    下次启动分不清「没保存过」和「保存了空」。留上次那个真会话即可 ——
+    //    一旦发出消息、服务端回执了真实 ID，会由 chat_started 路径落盘。
     this.showToast('已开新会话，发消息即可');
     router.back();
+  }
+
+  /** 当前会话的展示名（拿不到标题时回退 ID）*/
+  private currentTitle(): string {
+    for (const it of this.items) {
+      if (it.id === this.activeSessionId) {
+        return it.displayTitle();
+      }
+    }
+    return this.activeSessionId;
   }
 
   private showToast(msg: string): void {
@@ -227,7 +259,7 @@ struct SessionsPage {
         Row() {
           Text('当前：')
             .fontSize(11).fontColor('#999999')
-          Text(this.activeSessionId.length > 0 ? this.activeSessionId : '（新会话，尚未开始）')
+          Text(this.activeSessionId.length > 0 ? this.currentTitle() : '（新会话，尚未开始）')
             .fontSize(11)
             .fontColor(this.activeSessionId.length > 0 ? '#5B5BD6' : '#C77A20')
             .layoutWeight(1)

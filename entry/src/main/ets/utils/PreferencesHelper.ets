@@ -64,6 +64,39 @@ export async function loadApiKey(context: common.Context): Promise<string> {
   }
 }
 
+// ─────────────── 上次使用的会话（S15）───────────────
+
+const KEY_ACTIVE_SESSION: string = 'active_session_id';
+
+/**
+ * 记住"上次用的会话"。
+ *
+ * ⚠️ 为什么必须落盘：会话 ID 原先只存 AppStorage（**内存态**），APP 一重启就丢，
+ *    启动逻辑只能回退到默认的 deviceId 会话 —— 用户每次打开都被扔回那个老会话，
+ *    而真正的"最近在用"记录没人保存（实测反馈）。
+ */
+export async function saveActiveSessionId(context: common.Context, sessionId: string): Promise<void> {
+  try {
+    const pref: preferences.Preferences = await getPreferences(context);
+    await pref.put(KEY_ACTIVE_SESSION, sessionId);
+    await pref.flush();
+  } catch (error) {
+    console.error('saveActiveSessionId failed: ' + error);
+  }
+}
+
+/** 读回上次用的会话 ID；没有（首次安装 / 已清数据）返回空串 */
+export async function loadActiveSessionId(context: common.Context): Promise<string> {
+  try {
+    const pref: preferences.Preferences = await getPreferences(context);
+    const v: preferences.ValueType = await pref.get(KEY_ACTIVE_SESSION, '');
+    return v as string;
+  } catch (error) {
+    console.error('loadActiveSessionId failed: ' + error);
+    return '';
+  }
+}
+
 // ─────────────────────── 消息持久化（按会话分 key）───────────────────────
 
 function msgKeyOf(sessionId: string): string {
