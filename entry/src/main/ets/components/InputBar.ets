@@ -1,37 +1,35 @@
 /**
  * InputBar —— 底部输入区
  *
- * S6 从 ChatPage 的 build() 内联布局抽出。
- * S29 按用户要求改成**两行结构**（参考主流 IM）：
- *   第一行：多行输入（TextArea，可换行，最多 5 行高）
- *   第二行：左侧「＋」（点开菜单：添加图片 / 添加文件），右侧「↑」（发送）
+ * S29 两行结构 → S30 改为「按钮内嵌」：用户反馈第二行的按钮会被键盘挡住，
+ *      要求把「＋」「↑」**放进输入框内部**，＋ 在左下、↑ 在右下，
+ *      并且 ↑ 做成**小圆圈气泡**的样子。
  *
- * 设计要点：
- *   - 用 TextArea 而不是 TextInput：要支持多行输入，且初始就是两行的高度。
- *   - 「＋」的菜单是**自绘浮层**：ActionSheet / bindMenu 的对象字面量参数会被
- *     ArkTS 编译拒绝（之前踩过），自绘最稳。
- *   - 浮层定位在输入栏上方（bottom 对齐），不遮住正在输入的内容。
+ * 布局：
+ *   ┌──────────────────────────────┐
+ *   │  给小Q发消息...                │   ← TextArea（底部留出按钮区的高度）
+ *   │  ⊕                      (↑)  │   ← 左下「＋」 / 右下「↑」气泡
+ *   └──────────────────────────────┘
+ *
+ * ⚠️ 为什么这样能解决"键盘挡住"：
+ *    原来的按钮是输入框**下面独立的一行**，键盘弹出时页面被压缩，
+ *    那一行被挤到键盘下方。现在按钮是输入框内部的浮层，
+ *    输入框整体（含按钮）由系统键盘避让逻辑一起上移，不会再被切掉。
  */
 
 import { FontSize, Radius, Space, Size } from '../core/Theme.ets';
 
 @Component
 export struct InputBar {
-  /** 与父组件的 inputText 双向绑定 */
   @Link text: string;
-  /** 请求中：发送按钮变 loading */
   @Prop loading: boolean = false;
-  /** 发送回调 */
   onSend: () => void = () => {};
-  /** 菜单回调 —— 图片 */
   onImage: () => void = () => {};
-  /** 菜单回调 —— 文件 */
   onFile: () => void = () => {};
 
-  /** 「＋」菜单是否展开 */
   @State plusOpen: boolean = false;
 
-  /** 菜单项 */
+  /** 「＋」菜单项 */
   @Builder
   PlusItem(icon: string, label: string, handler: () => void) {
     Row() {
@@ -51,15 +49,14 @@ export struct InputBar {
 
   build() {
     Stack() {
-      // ─────────── 输入栏本体 ───────────
-      Column() {
-        // 第一行：多行输入
+      // ─────────── 输入框（按钮内嵌其中）───────────
+      Stack({ alignContent: Alignment.Bottom }) {
+        // ① 输入区：底部留出 48 给按钮，避免文字被按钮压住
         TextArea({ placeholder: '给小Q发消息...', text: this.text })
           .width('100%')
-          .constraintSize({ minHeight: 56, maxHeight: 120 })
-          .backgroundColor($r('app.color.bg_input'))
-          .borderRadius(Radius.CARD)
-          .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+          .constraintSize({ minHeight: 92, maxHeight: 150 })
+          .backgroundColor(Color.Transparent)
+          .padding({ left: 14, right: 14, top: 10, bottom: 50 })
           .fontSize(15)
           .fontColor($r('app.color.text_primary'))
           .placeholderColor($r('app.color.text_tertiary'))
@@ -68,31 +65,32 @@ export struct InputBar {
             this.text = value;
           })
 
-        // 第二行：左「＋」 右「↑」
+        // ② 按钮行：浮在输入框内部的底部
         Row() {
           Text('＋')
-            .fontSize(22)
+            .fontSize(20)
             .fontColor($r('app.color.text_secondary'))
             .textAlign(TextAlign.Center)
-            .width(34)
-            .height(34)
-            .backgroundColor($r('app.color.bg_input'))
-            .borderRadius(17)
+            .width(30)
+            .height(30)
+            .backgroundColor($r('app.color.bg_card'))
+            .borderRadius(15)
             .onClick(() => {
               this.plusOpen = !this.plusOpen;
             })
 
           Blank()
 
+          // ↑ 做成小圆圈气泡：有内容=主色实心，无内容=浅灰
           Text('↑')
-            .fontSize(20)
+            .fontSize(17)
             .fontWeight(FontWeight.Bold)
             .fontColor(this.canSend() ? $r('app.color.text_on_brand') : $r('app.color.text_tertiary'))
             .textAlign(TextAlign.Center)
-            .width(34)
-            .height(34)
-            .backgroundColor(this.canSend() ? $r('app.color.brand') : $r('app.color.bg_input'))
-            .borderRadius(17)
+            .width(30)
+            .height(30)
+            .backgroundColor(this.canSend() ? $r('app.color.brand') : $r('app.color.bg_card'))
+            .borderRadius(15)
             .onClick(() => {
               if (this.canSend()) {
                 this.onSend();
@@ -100,13 +98,13 @@ export struct InputBar {
             })
         }
         .width('100%')
-        .margin({ top: 8 })
+        .padding({ left: 8, right: 8, bottom: 8 })
       }
       .width('100%')
-      .padding({ left: 12, right: 12, bottom: 12, top: 8 })
-      .backgroundColor($r('app.color.bg_card'))
+      .backgroundColor($r('app.color.bg_input'))
+      .borderRadius(Radius.CARD)
 
-      // ─────────── 「＋」菜单（自绘，bottom 对齐到输入栏上方）───────────
+      // ─────────── 「＋」菜单（自绘浮层，向上弹出）───────────
       if (this.plusOpen) {
         Column() {
           Blank()
@@ -115,11 +113,11 @@ export struct InputBar {
             this.PlusItem('🖼️', '添加图片', (): void => { this.onImage(); })
             this.PlusItem('📎', '添加文件', (): void => { this.onFile(); })
           }
-          .width('46%')
+          .width('52%')
           .backgroundColor($r('app.color.bg_card'))
           .borderRadius(Radius.CARD)
           .padding({ top: 6, bottom: 6 })
-          .margin({ left: 12, bottom: 112 })
+          .margin({ left: 12, bottom: 152 })
           .alignItems(HorizontalAlign.Start)
         }
         .width('100%')
@@ -132,6 +130,8 @@ export struct InputBar {
       }
     }
     .width('100%')
+    .padding({ left: 10, right: 10, bottom: 8, top: 6 })
+    .backgroundColor($r('app.color.bg_card'))
   }
 
   private canSend(): boolean {
