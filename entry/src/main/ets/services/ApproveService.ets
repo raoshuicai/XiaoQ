@@ -127,22 +127,37 @@ export class ApproveService {
     await this.persist();
   }
 
-  /** 入队（WS 收到 approve_request 时调用） */
+  /**
+   * 入队（WS 收到 approve_request 时调用）。
+   *
+   * ⚠️ 去重键 = `runId | command`，**不能只用 runId**：
+   *   同一轮对话（同一个 run）里可能触发**多次**审批（例如连续两个危险命令），
+   *   而 run_id 是相同的。若按 run_id 去重，第二次会被误判成"WS 重连重放"而丢弃
+   *   —— 实测表现就是「APP 只弹了第一个卡片，第二个永远不出现」，
+   *   服务端则在等第二个审批直到超时。
+   *   带上 command 后：重连重放（runId+command 都相同）仍能正确去重，
+   *   同 run 的不同命令则各自成卡片。
+   */
+  private dedupKey(runId: string, command: string): string {
+    return runId + '|' + command;
+  }
+
   public push(runId: string, command: string, patterns: string[],
               description: string, sessionId: string): void {
     if (runId.length === 0) {
       return;
     }
+    const key: string = this.dedupKey(runId, command);
     // 已处理过 → 忽略（WS 重连重放）
-    if (this.handled.indexOf(runId) >= 0) {
+    if (this.handled.indexOf(key) >= 0) {
       return;
     }
     // 已在队列或正展示 → 忽略
-    if (this.current !== null && this.current.runId === runId) {
+    if (this.current !== null && this.dedupKey(this.current.runId, this.current.command) === key) {
       return;
     }
     for (const q of this.queue) {
-      if (q.runId === runId) {
+      if (this.dedupKey(q.runId, q.command) === key) {
         return;
       }
     }
@@ -223,7 +238,7 @@ export class ApproveService {
       // ArkTS：对象字面量必须对应显式声明的类型，不能直接内联
       const body: Record<string, string> = { 'approval': choice };
       await rest.postOnce('/v1/runs/' + encodeURIComponent(req.runId) + '/approval', body);
-      this.handled.push(req.runId);
+      this.handled.push(this.dedupKey(req.runId, req.command));
       this.current = null;
       this.inProgress = false;
       this.promoteIfIdle();
@@ -242,7 +257,7 @@ export class ApproveService {
   public dismissCurrent(): void {
     const req: ApproveRequest | null = this.current;
     if (req !== null) {
-      this.handled.push(req.runId);
+      this.handled.push(this.dedupKey(req.runId, req.command));
       this.record(req, 'dismissed');    // S11：关闭也算一次记录
     }
     this.current = null;
