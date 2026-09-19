@@ -330,7 +330,10 @@ struct SessionsPage {
                     })
                 )
               }
-            }, (s: SessionItem) => s.id)
+            // ⚠️ key 必须包含 title：ForEach 按 key 复用组件，只用 s.id 的话
+            //    改名后 id 没变 -> ArkUI 直接复用旧组件 -> 标题文字不更新，
+            //    表现为"改完名字不生效，退出重进列表才看到"（实测踩坑）。
+            }, (s: SessionItem) => s.id + '|' + s.title)
 
             // 分页加载
             if (this.hasMore) {
