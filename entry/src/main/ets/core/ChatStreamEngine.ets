@@ -54,6 +54,12 @@ export class StreamCallbacks {
 
   onFailure: (message: string) => void = (message: string): void => {};
 
+  /**
+   * 服务端确认「该会话已无活跃流、也没有离线缓存」。
+   * 页面据此清掉「恢复中」占位符并复位加载态 —— 否则流状态会永远挂着。
+   */
+  onStreamMissing: () => void = (): void => {};
+
   onIndicator: () => void = (): void => {};
 
   onIndicatorReplace: (content: string) => void = (content: string): void => {};
@@ -217,12 +223,26 @@ export class ChatStreamEngine {
   }
 
   /** sync_pending_response：服务端补发了离线缓存内容 */
-  public handleSyncPending(content: string): void {
+  public handleSyncPending(content: string, streamMissing: boolean = false): void {
     if (content.length > 0) {
       this.cb.onIndicatorReplace(content);
       this.pendingIndicator = false;
+      return;
     }
-    // 内容为空 → 服务器还没准备好，retry timer 会继续重试
+    // 内容为空有两种可能，此前无法区分，导致会话永久卡在「恢复中」：
+    //   ① 流已注册但还没有 token（刚起步）→ 继续等，retry timer 会再试
+    //   ② 该会话已无活跃流、也无离线缓存 → 服务端带 stream_missing=true，必须结束等待
+    if (streamMissing) {
+      console.info('sync_pending: server reports no active stream -> ending wait');
+      this.stopSyncRetry();
+      this.clearStallTimer();
+      this.clearResumeTimer();
+      this.isStreaming = false;
+      this.pendingIndicator = false;
+      this.streamContent = '';
+      this.lastSeq = -1;
+      this.cb.onStreamMissing();
+    }
   }
 
   /** WS 连上：若存在未恢复的流，主动请求续流 */

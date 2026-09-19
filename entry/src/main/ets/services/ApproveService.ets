@@ -50,6 +50,13 @@ export class ApproveService {
   private inProgress: boolean = false;
   /** 已处理过的 run_id（防重连重放复活） */
   private handled: string[] = [];
+
+  /**
+   * 最近一次 respond() 失败的**具体原因**，供页面展示。
+   * ⚠️ 不要让页面用固定文案兜底：此前 404（授权对应的 run 已不存在，如测试残留卡片）
+   *    被显示成「请检查 API 密钥与网络」，把用户引向完全错误的方向。
+   */
+  public lastError: string = '';
   /** 当前前台页面名（只有它的卡片会渲染） */
   private activePage: string = '';
   /** 变更订阅者 */
@@ -247,6 +254,14 @@ export class ApproveService {
       return true;
     } catch (e) {
       // 提交失败：保留卡片让用户重试（不清队列、不登记 handled）
+      //
+      // ⚠️ 这里必须把**具体原因**带出去。此前页面只显示一句
+      //    「请检查 API 密钥与网络」，而真实情况往往是 404（服务端没有这个 run，
+      //    例如测试残留卡片）—— 文案把用户引向错误的方向。
+      const err = e as Error;
+      this.lastError = (err !== undefined && err.message !== undefined && err.message.length > 0)
+        ? err.message
+        : '未知错误';
       this.inProgress = false;
       this.notify();
       return false;

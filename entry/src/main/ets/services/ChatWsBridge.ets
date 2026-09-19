@@ -48,10 +48,11 @@ export class ChatWsBridge {
 
     wsService.connect(baseUrl, deviceId);
 
-    // sync_pending_response：服务端补发了离线缓存内容
+    // sync_pending_response：服务端补发了离线缓存内容，
+    // 或明确告知该会话已无活跃流（stream_missing）→ 结束等待
     this.unsubs.push(eventBus.on(Events.CHAT_SYNC_PENDING, (m: WsMessage): void => {
-      // 内容为空 → 服务器还没准备好，engine 的 retry timer 会继续重试
-      getEngine()?.handleSyncPending(m.content ?? '');
+      // 内容为空且非 stream_missing → 服务器还没准备好，engine 的 retry timer 会继续重试
+      getEngine()?.handleSyncPending(m.content ?? '', m.stream_missing === true);
     }));
 
     // sync_resume：服务端通知流已恢复，后续 token 会实时推送

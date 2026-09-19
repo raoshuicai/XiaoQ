@@ -22,7 +22,13 @@ export interface WsMessage {
   approved?: boolean;
   timestamp?: number;
   // 流式聊天
-  content?: string;       // chat_token 内容
+  content?: string;       // chat_token / sync_pending_response 内容
+  /**
+   * sync_pending_response 专用：服务端明确告知「该会话已无活跃流、也无离线缓存」。
+   * content 为空时无法与「流刚起步还没 token」区分，必须靠这个字段结束等待，
+   * 否则占位符「恢复中」会永久停留（实测踩坑）。
+   */
+  stream_missing?: boolean;
   name?: string;          // 工具名
   arguments?: string;     // 工具参数
   message?: string;       // chat_error 信息

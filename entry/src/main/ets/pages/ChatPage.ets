@@ -33,7 +33,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.7.5';
+const APP_VERSION: string = '2.7.6';
 
 @Entry
 @Component
@@ -203,6 +203,14 @@ struct ChatPage {
     cb.onIndicatorReplace = (content: string): void => {
       this.replaceIndicator(content);
     };
+    // 服务端确认该会话已无活跃流（也没有离线缓存）→ 结束「恢复中」，不能一直转圈
+    cb.onStreamMissing = (): void => {
+      this.isStreaming = false;
+      this.isLoading = false;
+      chatService.removeIndicator();
+      this.streamContent = '';
+      this.syncMessages();
+    };
     cb.onSyncNeeded = (sessionId: string, lastSeq: number): void => {
       wsService.send({
         type: 'sync_pending',
@@ -244,8 +252,11 @@ struct ChatPage {
       const label: string = labels[choice] ?? choice;
       chatService.append('assistant', '✅ 已响应授权：' + label);
     } else {
+      // 显示真实失败原因 —— 之前的固定文案「请检查 API 密钥与网络」
+      // 会把 404（如授权对应的运行已不存在）误导成密钥问题
+      const why: string = approveService.lastError;
       chatService.append('assistant',
-        '❌ 授权提交失败：请检查 API 密钥与网络后重试');
+        '❌ 授权提交失败：' + (why.length > 0 ? why : '未知错误'));
     }
     this.syncMessages();
   }

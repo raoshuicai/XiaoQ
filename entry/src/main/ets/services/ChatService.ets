@@ -102,6 +102,23 @@ export class ChatService {
     return false;
   }
 
+  /**
+   * 删除「恢复中」占位符消息（服务端确认该会话已无活跃流时用）。
+   *
+   * ⚠️ 与 replaceIndicator 的区别：replace 会留下一条**空内容**的 assistant 消息，
+   *    视觉上是个空气泡，所以清场必须用删除。
+   */
+  public removeIndicator(): boolean {
+    for (let i: number = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].content.startsWith(PLACEHOLDER_PREFIX)) {
+        this.messages.splice(i, 1);
+        this.scheduleSave();
+        return true;
+      }
+    }
+    return false;
+  }
+
   // ─────────────────────── LLM 上下文构建 ───────────────────────
 
   /**
