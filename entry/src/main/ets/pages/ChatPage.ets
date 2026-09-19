@@ -33,7 +33,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.9.5';
+const APP_VERSION: string = '2.9.6';
 
 @Entry
 @Component
@@ -778,20 +778,34 @@ struct ChatPage {
     return e instanceof Error ? (e as Error).message : String(e);
   }
 
-  /** S12：服务端回执了本轮会话（新建会话时把生成出来的 ID 记下来）*/
-  private onChatStartedMsg(msg: WsMessage): void {
+  /**
+   * 服务端确认了本轮会话 ID（新建会话时回执 chat_started）。
+   *
+   * ⚠️ 新会话有个必须处理的时序（修复前会导致「刚发的消息消失」）：
+   *    1. sendMessage 时 activeSessionId 还是空 → append 的消息进了内存，
+   *       但 flushNow() 开头有 `if (sessionId === '') return`，**消息没落盘**；
+   *    2. 这里拿到新 ID 后写 AppStorage → 触发 @Watch('onSessionChanged')
+   *       → loadSaved() 查新 key 是空的 → 转去 loadHistoryFromServer()
+   *    3. 而服务端此刻还没落库那条刚发的消息 → setMessages(服务端历史)
+   *       **把本地刚聊的内容整个覆盖掉** → 用户看到自己的消息没了。
+   *
+   *    所以必须在写 AppStorage **之前**、bind 之后立刻 flush：把内存里的消息
+   *    落到新 key。这样 @Watch 触发的 loadSaved() 会命中新 key 读到正确内容，
+   *    不会再去拉（还缺内容的）服务端历史。
+   */
+  private async onChatStartedMsg(msg: WsMessage): Promise<void> {
     const sid: string = (msg.session_id as string) ?? '';
     if (sid.length === 0 || sid === this.activeSessionId) {
       return;
     }
     if (this.activeSessionId.length === 0) {
-      // 新建会话：把服务端生成的 ID 落下来。
-      // 注意先 bind 再写 AppStorage —— 写 AppStorage 会触发 @Watch，
-      // 而那时 activeSessionId 已经是新值，onSessionChanged 会做一次无谓重载；
-      // 这里直接同步绑定，避免刚发出的消息被重载冲掉。
+      // 新建会话：把服务端生成的 ID 落下来
       if (this.appCtx !== null) {
         this.engine?.bindSession(sid);
         chatService.bind(this.appCtx, sid);
+        // ⚠️ 关键一步：绑定新 ID 后立即把当前消息落到新 key（别等防抖，
+        //    也别等 @Watch 触发重载）—— 详见方法头注释的时序说明
+        await chatService.flushNowAsync();
       }
       AppStorage.setOrCreate('activeSessionId', sid);
       // S15：新建会话拿到真实 ID 后落盘 —— 否则用户"开了新会话聊完再重启"会回到旧会话
@@ -800,7 +814,8 @@ struct ChatPage {
           console.info('persist new session failed: ' + e.message);
         });
       }
-      console.info('New session established: ' + sid);
+      console.info('New session established: ' + sid
+        + ' (flushed ' + chatService.getMessages().length + ' local msgs to new key)');
     }
   }
   private saveApiKeyValue(key: string): void {

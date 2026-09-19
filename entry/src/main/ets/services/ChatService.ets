@@ -290,6 +290,22 @@ export class ChatService {
     saveSessionMessages(this.ctx, this.sessionId, toSave);
   }
 
+  /**
+   * flushNow 的**等待版**（S20）。
+   *
+   * ⚠️ 为什么需要：`flushNow()` 调的是 async 的写入但不 await —— 在"新会话建立"
+   *    这个场景里紧接着就会读同一个 key（@Watch → loadSaved），会撞上竞态：
+   *    读的时候还没写完 → 读到空 → 转去拉服务端历史 → 把本地刚聊的内容覆盖掉。
+   *    所以那一步必须等写入真正完成。
+   */
+  public async flushNowAsync(): Promise<void> {
+    if (this.ctx === null || this.sessionId === '') {
+      return;
+    }
+    const toSave: StoredMessage[] = this.toStored(this.messages);
+    await saveSessionMessages(this.ctx, this.sessionId, toSave);
+  }
+
   public dispose(): void {
     if (this.saveTimer !== NO_TIMER) {
       this.clock.clearTimeout(this.saveTimer);
