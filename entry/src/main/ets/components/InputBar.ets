@@ -1,20 +1,20 @@
 /**
  * InputBar —— 底部输入区
  *
- * S29 两行结构 → S30 改为「按钮内嵌」：用户反馈第二行的按钮会被键盘挡住，
- *      要求把「＋」「↑」**放进输入框内部**，＋ 在左下、↑ 在右下，
- *      并且 ↑ 做成**小圆圈气泡**的样子。
+ * 版本演进：
+ *   S6  从 ChatPage 的 build() 内联布局抽出
+ *   S21 加菜单栏（语音/图片/文件）
+ *   S22 移除语音（手机键盘自带）
+ *   S29 改两行结构
+ *   S30 按钮移入输入框内部（想解决键盘遮挡，但没用）
+ *   S31 **最终形态**（用户指定）：
+ *        - 未输入时输入框只占**一行**（minHeight 44）
+ *        - 「＋」和「↑」在输入框**下面一行**
+ *        - 键盘避让改为 OFFSET（在 EntryAbility 里设置，见那边的注释）
  *
- * 布局：
- *   ┌──────────────────────────────┐
- *   │  给小Q发消息...                │   ← TextArea（底部留出按钮区的高度）
- *   │  ⊕                      (↑)  │   ← 左下「＋」 / 右下「↑」气泡
- *   └──────────────────────────────┘
- *
- * ⚠️ 为什么这样能解决"键盘挡住"：
- *    原来的按钮是输入框**下面独立的一行**，键盘弹出时页面被压缩，
- *    那一行被挤到键盘下方。现在按钮是输入框内部的浮层，
- *    输入框整体（含按钮）由系统键盘避让逻辑一起上移，不会再被切掉。
+ * ⚠️ 键盘遮挡的真正解法不在这个文件的布局，而在 EntryAbility 的
+ *    `setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET)` —— 默认的 RESIZE 会压缩布局，
+ *    把底部输入栏挤到键盘下方。布局怎么摆都救不了，得先让页面整体上移。
  */
 
 import { FontSize, Radius, Space, Size } from '../core/Theme.ets';
@@ -27,9 +27,10 @@ export struct InputBar {
   onImage: () => void = () => {};
   onFile: () => void = () => {};
 
+  /** 「＋」菜单是否展开 */
   @State plusOpen: boolean = false;
 
-  /** 「＋」菜单项 */
+  /** 菜单项 */
   @Builder
   PlusItem(icon: string, label: string, handler: () => void) {
     Row() {
@@ -49,48 +50,59 @@ export struct InputBar {
 
   build() {
     Stack() {
-      // ─────────── 输入框（按钮内嵌其中）───────────
-      Stack({ alignContent: Alignment.Bottom }) {
-        // ① 输入区：底部留出 48 给按钮，避免文字被按钮压住
-        TextArea({ placeholder: '给小Q发消息...', text: this.text })
+      // ─────────── 输入栏本体（两行）───────────
+      Column() {
+        // ① 输入框：未输入时只有一行高
+        TextInput({ placeholder: '给小Q发消息...', text: this.text })
           .width('100%')
-          .constraintSize({ minHeight: 92, maxHeight: 150 })
-          .backgroundColor(Color.Transparent)
-          .padding({ left: 14, right: 14, top: 10, bottom: 50 })
-          .fontSize(15)
+          // ⚠️ 用 TextInput 而不是 TextArea：TextArea 在 HarmonyOS 上有**硬编码的
+          //    "最小 3 行"高度**，constraintSize.minHeight(24/44) 和显式 .height(44)
+          //    都压不下来（实测始终 136~154px）。要真正一行，只能换 TextInput。
+          //    代价：不支持多行输入（用户明确要求未输入时只占一行，优先满足这个）。
+          .height(44)
+          .backgroundColor($r('app.color.bg_input'))
+          .borderRadius(Radius.CARD)
+          // 只留左右 padding：上下 padding 会叠加到 height 上，导致实际高度远超 44
+          .padding({ left: 14, right: 14 })
+          .fontSize(FontSize.LABEL)
           .fontColor($r('app.color.text_primary'))
           .placeholderColor($r('app.color.text_tertiary'))
           .enabled(!this.loading)
           .onChange((value: string) => {
             this.text = value;
           })
+          .onSubmit(() => {
+            if (this.canSend()) {
+              this.onSend();
+            }
+          })
 
-        // ② 按钮行：浮在输入框内部的底部
+        // ② 按钮行：输入框下面一行
         Row() {
           Text('＋')
             .fontSize(20)
             .fontColor($r('app.color.text_secondary'))
             .textAlign(TextAlign.Center)
-            .width(30)
-            .height(30)
-            .backgroundColor($r('app.color.bg_card'))
-            .borderRadius(15)
+            .width(32)
+            .height(32)
+            .backgroundColor($r('app.color.bg_input'))
+            .borderRadius(16)
             .onClick(() => {
               this.plusOpen = !this.plusOpen;
             })
 
           Blank()
 
-          // ↑ 做成小圆圈气泡：有内容=主色实心，无内容=浅灰
+          // ↑ 小圆圈气泡：有内容=主色实心白箭头；空=浅灰
           Text('↑')
-            .fontSize(17)
+            .fontSize(18)
             .fontWeight(FontWeight.Bold)
             .fontColor(this.canSend() ? $r('app.color.text_on_brand') : $r('app.color.text_tertiary'))
             .textAlign(TextAlign.Center)
-            .width(30)
-            .height(30)
-            .backgroundColor(this.canSend() ? $r('app.color.brand') : $r('app.color.bg_card'))
-            .borderRadius(15)
+            .width(32)
+            .height(32)
+            .backgroundColor(this.canSend() ? $r('app.color.brand') : $r('app.color.bg_input'))
+            .borderRadius(16)
             .onClick(() => {
               if (this.canSend()) {
                 this.onSend();
@@ -98,11 +110,11 @@ export struct InputBar {
             })
         }
         .width('100%')
-        .padding({ left: 8, right: 8, bottom: 8 })
+        .margin({ top: 6 })
       }
       .width('100%')
-      .backgroundColor($r('app.color.bg_input'))
-      .borderRadius(Radius.CARD)
+      .padding({ left: 12, right: 12, bottom: 10, top: 6 })
+      .backgroundColor($r('app.color.bg_card'))
 
       // ─────────── 「＋」菜单（自绘浮层，向上弹出）───────────
       if (this.plusOpen) {
@@ -117,7 +129,7 @@ export struct InputBar {
           .backgroundColor($r('app.color.bg_card'))
           .borderRadius(Radius.CARD)
           .padding({ top: 6, bottom: 6 })
-          .margin({ left: 12, bottom: 152 })
+          .margin({ left: 12, bottom: 130 })
           .alignItems(HorizontalAlign.Start)
         }
         .width('100%')
@@ -130,7 +142,6 @@ export struct InputBar {
       }
     }
     .width('100%')
-    .padding({ left: 10, right: 10, bottom: 8, top: 6 })
     .backgroundColor($r('app.color.bg_card'))
   }
 
