@@ -85,7 +85,8 @@ export struct InputBar {
               .textAlign(TextAlign.Center)
               .width(32)
               .height(32)
-              .backgroundColor($r('app.color.bg_hover'))
+              // 用户要求：＋ 默认白色底
+              .backgroundColor($r('app.color.btn_circle_bg'))
               .borderRadius(16)
               .onClick(() => {
                 this.plusOpen = !this.plusOpen;
@@ -96,11 +97,13 @@ export struct InputBar {
             Text('↑')
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
-              .fontColor(this.canSend() ? $r('app.color.text_on_brand') : $r('app.color.text_tertiary'))
+              // 用户要求：↑ 的字**始终白色**（两种状态下都不变）
+              .fontColor($r('app.color.text_on_brand'))
               .textAlign(TextAlign.Center)
               .width(32)
               .height(32)
-              .backgroundColor(this.canSend() ? $r('app.color.brand') : $r('app.color.bg_hover'))
+              // 默认白底；有输入时整圈变主题色（字仍白）
+              .backgroundColor(this.canSend() ? $r('app.color.brand') : $r('app.color.btn_circle_bg'))
               .borderRadius(16)
               .onClick(() => {
                 if (this.canSend()) {

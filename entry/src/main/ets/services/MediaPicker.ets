@@ -102,20 +102,42 @@ export class MediaPicker {
     const safe: string = item.name.length > 0 ? item.name : 'upload.bin';
     const dstPath: string = ctx.cacheDir + '/' + Date.now().toString() + '_' + safe;
 
-    const src: fs.File = fs.openSync(srcUri, fs.OpenMode.READ_ONLY);
+    hilog.error(0x0001, TAG, '[COPY] start src=%{public}s', srcUri);
+    hilog.error(0x0001, TAG, '[COPY] dst=%{public}s', dstPath);
+
+    let src: fs.File | undefined = undefined;
+    let dst: fs.File | undefined = undefined;
     try {
-      const dst: fs.File = fs.openSync(dstPath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-      try {
-        fs.copyFileSync(src.fd, dst.fd);
-      } finally {
-        fs.closeSync(dst);
-      }
+      src = fs.openSync(srcUri, fs.OpenMode.READ_ONLY);
+      hilog.error(0x0001, TAG, '[COPY] openSync(src) ok fd=%{public}d', src.fd);
+
+      dst = fs.openSync(dstPath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      hilog.error(0x0001, TAG, '[COPY] openSync(dst) ok fd=%{public}d', dst.fd);
+
+      fs.copyFileSync(src.fd, dst.fd);
+      hilog.error(0x0001, TAG, '[COPY] copyFileSync ok');
+    } catch (e) {
+      const be = e as BusinessError;
+      hilog.error(0x0001, TAG, '[COPY] FAILED code=%{public}d msg=%{public}s', be.code, be.message);
+      // ⚠️ ArkTS 禁止 throw 任意类型（arkts-limited-throw），必须包成 Error
+      throw new Error('copy to sandbox failed: ' + be.message);
     } finally {
-      fs.closeSync(src);
+      if (dst !== undefined) {
+        try { fs.closeSync(dst); } catch (x) { /* ignore */ }
+      }
+      if (src !== undefined) {
+        try { fs.closeSync(src); } catch (x) { /* ignore */ }
+      }
     }
 
     const dstUri: string = 'file://' + dstPath;
-    hilog.error(0x0001, TAG, 'copied to sandbox: %{public}s', dstUri);
+    // 校验：拷贝后文件大小应 > 0
+    try {
+      const st: fs.Stat = fs.statSync(dstPath);
+      hilog.error(0x0001, TAG, '[COPY] done dstUri=%{public}s size=%{public}d', dstUri, st.size);
+    } catch (x) {
+      hilog.error(0x0001, TAG, '[COPY] done dstUri=%{public}s (stat failed)', dstUri);
+    }
     return dstUri;
   }
 
@@ -161,7 +183,7 @@ export class MediaPicker {
         files: files,
         data: data
       };
-      hilog.error(0x0001, TAG, 'uploading %{public}s to %{public}s', item.name, cfg.url);
+      hilog.error(0x0001, TAG, 'uploading name=%{public}s uri=%{public}s to %{public}s', item.name, sandboxUri, cfg.url);
 
       const task: request.UploadTask = await request.uploadFile(ctx, cfg);
       const code: number = await new Promise<number>((resolve) => {
@@ -185,7 +207,10 @@ export class MediaPicker {
       // 所以这里用「按原名反查」的方式不可靠 → 改成服务端支持 ?name= 回显。
       return '/api/upload/' + item.name;
     } catch (e) {
-      hilog.error(0x0001, TAG, 'upload threw: %{public}s', (e as BusinessError).message);
+      const be = e as BusinessError;
+      // ⚠️ 一定要打 code：uploadFile 的参数校验失败和网络失败 message 很像，
+      //    只有 code 能区分（1300002/401 等）
+      hilog.error(0x0001, TAG, 'upload threw code=%{public}d msg=%{public}s', be.code, be.message);
       return '';
     } finally {
       // 1) 传完就删临时文件（无论成功失败，避免 cacheDir 堆积）

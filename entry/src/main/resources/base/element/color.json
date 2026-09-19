@@ -42,7 +42,7 @@
     },
     {
       "name": "bg_input",
-      "value": "#F0F1F5"
+      "value": "#E6E8EE"
     },
     {
       "name": "bg_hover",
@@ -82,7 +82,7 @@
     },
     {
       "name": "bubble_bot_bg",
-      "value": "#F0F1F5"
+      "value": "#E6E8EE"
     },
     {
       "name": "bubble_bot_text",
@@ -91,6 +91,10 @@
     {
       "name": "scrim",
       "value": "#66000000"
+    },
+    {
+      "name": "btn_circle_bg",
+      "value": "#FFFFFF"
     }
   ]
 }
