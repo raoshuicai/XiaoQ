@@ -31,7 +31,11 @@ const ACTION_ROW_H: number = 40;
 export struct InputBar {
   @Link text: string;
   @Prop loading: boolean = false;
+  /** S43：YOLO 是否已开启（会话级跳过危险命令审批） */
+  @Prop yoloOn: boolean = false;
   onSend: () => void = () => {};
+  /** S43：点击 Y 气泡 —— 切换 YOLO */
+  onToggleYolo: () => void = () => {};
   onImage: () => void = () => {};
   onFile: () => void = () => {};
 
@@ -90,6 +94,22 @@ export struct InputBar {
               .borderRadius(16)
               .onClick(() => {
                 this.plusOpen = !this.plusOpen;
+              })
+
+            // ─────── S43：「Y」YOLO 气泡（在 ＋ 右侧）───────
+            // 默认白底 + 黑 Y；开启后主题色底 + 白 Y（与 ↑ 的配色规则一致）
+            Text('Y')
+              .fontSize(15)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(this.yoloOn ? $r('app.color.text_on_brand') : $r('app.color.btn_circle_fg'))
+              .textAlign(TextAlign.Center)
+              .width(32)
+              .height(32)
+              .backgroundColor(this.yoloOn ? $r('app.color.brand') : $r('app.color.btn_circle_bg'))
+              .borderRadius(16)
+              .margin({ left: 8 })
+              .onClick(() => {
+                this.onToggleYolo();
               })
 
             Blank()

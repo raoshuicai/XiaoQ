@@ -68,10 +68,20 @@ export class HermesRest {
 
   // ─────────────────────────── 请求方法 ───────────────────────────
 
-  /** GET，query 会被 url-encode */
-  public async get(path: string, query?: Record<string, string>): Promise<Object> {
+  /**
+   * GET，query 会被 url-encode。
+   * @param extraHeaders 可选：额外请求头（如 X-Hermes-Session-Id）
+   */
+  public async get(path: string, query?: Record<string, string>,
+                   extraHeaders?: Record<string, string>): Promise<Object> {
     const url: string = this.buildUrl(path, query);
     const headers: Record<string, string> = this.authHeaders(false);
+    if (extraHeaders !== undefined) {
+      const keys: string[] = Object.keys(extraHeaders);
+      for (let i: number = 0; i < keys.length; i++) {
+        headers[keys[i]] = extraHeaders[keys[i]];
+      }
+    }
     const request: rcp.Request = new rcp.Request(url, 'GET', headers, {});
     const response: rcp.Response = await this.fetchWithRetry(request);
     return this.unwrap(response);

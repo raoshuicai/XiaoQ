@@ -36,7 +36,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.2.0';
+const APP_VERSION: string = '3.3.0';
 
 @Entry
 @Component
@@ -55,6 +55,8 @@ struct ChatPage {
    * - 点「新会话」-> 置空 -> 下次发消息由服务端生成并回执 chat_started
    */
   @StorageLink('activeSessionId') @Watch('onSessionChanged') activeSessionId: string = '';
+  /** S43：本会话 YOLO 是否开启（会话级；Gateway 侧是内存态，重启即清） */
+  @State yoloOn: boolean = false;
   @State tempApiKey: string = '';
   @State networkMode: string = '检测中...';
   // S7：审批状态（showDialog/approveRunId/approveCommand/approvePatterns/
@@ -75,6 +77,61 @@ struct ChatPage {
   private engine: ChatStreamEngine | null = null;   // S3：流式状态机
   private pageVisible: boolean = true;
   private listScroller: Scroller = new Scroller();
+
+  /**
+   * S43：确保有会话 ID。
+   *
+   * YOLO 在审批层挂在 chat 请求的 session_id 上，必须先有 ID 才能开。
+   * 新会话时 xiaoq-api 生成 `app-` + uuid4().hex[:16]，这里按同格式补一个 ——
+   * 后续 chat 会带上它（xiaoq-api 不再新建），保证两条通道同一个 key。
+   */
+  private ensureSessionId(): string {
+    if (this.activeSessionId.length > 0) {
+      return this.activeSessionId;
+    }
+    let hex: string = '';
+    const chars: string = '0123456789abcdef';
+    for (let i: number = 0; i < 16; i++) {
+      hex += chars.charAt(Math.floor(Math.random() * 16));
+    }
+    const sid: string = 'app-' + hex;
+    AppStorage.setOrCreate('activeSessionId', sid);
+    console.info('yolo: 预生成会话 ID ' + sid);
+    return sid;
+  }
+
+  /** S43：查一次当前会话的 YOLO 状态（失败静默，不打扰用户） */
+  private refreshYolo(): void {
+    const sid: string = this.activeSessionId;
+    if (sid.length === 0) {
+      this.yoloOn = false;
+      return;
+    }
+    rest.get('/v1/session/yolo', undefined,
+      { 'X-Hermes-Session-Id': sid }).then((res: Object) => {
+      const obj: Record<string, Object> = res as Record<string, Object>;
+      this.yoloOn = obj.yolo === true;
+    }).catch((e: Error) => {
+      console.info('yolo refresh skipped: ' + e.message);
+    });
+  }
+
+  /** S43：点 Y 气泡 —— 切换 YOLO（会话级） */
+  private toggleYolo(): void {
+    const sid: string = this.ensureSessionId();
+    const want: boolean = !this.yoloOn;
+    rest.post('/v1/session/yolo', { 'enabled': want } as Record<string, boolean>,
+      { 'X-Hermes-Session-Id': sid }).then((res: Object) => {
+      const obj: Record<string, Object> = res as Record<string, Object>;
+      this.yoloOn = obj.yolo === true;
+      this.showToast(this.yoloOn
+        ? 'YOLO 已开启：本会话不再弹审批'
+        : 'YOLO 已关闭：恢复审批确认');
+    }).catch((e: Error) => {
+      console.info('yolo toggle failed: ' + e.message);
+      this.showToast('YOLO 切换失败，请检查网络');
+    });
+  }
 
   private showToast(message: string): void {
     promptAction.showToast({ message: message });
@@ -482,6 +539,8 @@ struct ChatPage {
     this.pageVisible = true;
     // S7：登记本页为「审批可展示页」——只有前台页面会渲染审批卡片
     approveService.setActivePage('chat');
+    // S43：回前台时同步一次 YOLO 状态（Gateway 侧是内存态，重启会清）
+    this.refreshYolo();
     // S42：回前台时补拉服务端未处理的审批，写进「审批历史」待处理区。
     // 误触收起 / 切页面 / 断连期间丢掉的卡片，都靠这一步找回来。
     approveService.syncFromServer().catch((e: Error) => {
@@ -721,6 +780,10 @@ struct ChatPage {
         InputBar({
           text: $inputText,
           loading: this.isLoading,
+          yoloOn: this.yoloOn,
+          onToggleYolo: (): void => {
+            this.toggleYolo();
+          },
           onSend: () => {
             this.sendMessage();
           },
