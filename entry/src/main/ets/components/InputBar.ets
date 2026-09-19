@@ -42,7 +42,7 @@ export struct InputBar {
 
         Button() {
           if (this.loading) {
-            LoadingProgress().width(20).height(20).color('#FFFFFF')
+            LoadingProgress().width(20).height(20).color($r('app.color.text_on_brand'))
           } else {
             Text('发送').fontSize(14).fontColor($r('app.color.text_on_brand'))
           }

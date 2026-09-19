@@ -41,8 +41,8 @@ struct NotifyDetailPage {
   @Builder
   metaRow(label: string, value: string) {
     Row() {
-      Text(label).fontSize(12).fontColor('#999999').width(64)
-      Text(value).fontSize(12).fontColor('#666666').layoutWeight(1)
+      Text(label).fontSize(12).fontColor($r('app.color.text_tertiary')).width(64)
+      Text(value).fontSize(12).fontColor($r('app.color.text_secondary')).layoutWeight(1)
     }
     .width('100%')
     .margin({ top: 6 })
@@ -54,7 +54,7 @@ struct NotifyDetailPage {
       // 标题栏
       Row() {
         Button() {
-          Text('← 返回').fontSize(15).fontColor('#5B5BD6')
+          Text('← 返回').fontSize(15).fontColor($r('app.color.brand'))
         }
         .backgroundColor('transparent')
         .onClick(() => { router.back(); })
@@ -67,7 +67,7 @@ struct NotifyDetailPage {
           .textAlign(TextAlign.Center)
 
         Button() {
-          Text('复制').fontSize(15).fontColor('#5B5BD6')
+          Text('复制').fontSize(15).fontColor($r('app.color.brand'))
         }
         .backgroundColor('transparent')
         .onClick(() => { this.copyAll(); })
@@ -75,11 +75,11 @@ struct NotifyDetailPage {
       }
       .width('100%')
       .padding({ left: 16, right: 16, top: 14, bottom: 12 })
-      .backgroundColor('#FFFFFF')
+      .backgroundColor($r('app.color.bg_card'))
 
       if (this.detail === null) {
         Column() {
-          Text('没有可显示的通知').fontSize(14).fontColor('#999999')
+          Text('没有可显示的通知').fontSize(14).fontColor($r('app.color.text_tertiary'))
         }
         .width('100%')
         .layoutWeight(1)
@@ -90,7 +90,7 @@ struct NotifyDetailPage {
             Text(this.detail!.title.length > 0 ? this.detail!.title : '(无标题)')
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
-              .fontColor('#1A1A2E')
+              .fontColor($r('app.color.text_primary'))
               .width('100%')
               .margin({ bottom: 10 })
 
@@ -99,14 +99,14 @@ struct NotifyDetailPage {
             this.metaRow('状态', this.detail!.readAt.length > 0 ? '已读' : '未读')
 
             Divider()
-              .color('#EEEEEE')
+              .color($r('app.color.divider'))
               .margin({ top: 14, bottom: 14 })
 
             // 完整内容：不限行数、可滚动
             // ⚠️ API 24 的 textSelectable 已从 boolean 改为 TextSelectableMode
             Text(this.detail!.body)
               .fontSize(15)
-              .fontColor('#333333')
+              .fontColor($r('app.color.text_secondary'))
               .lineHeight(24)
               .width('100%')
               .textSelectable(TextSelectableMode.SELECTABLE_UNFOCUSABLE)
@@ -114,7 +114,7 @@ struct NotifyDetailPage {
           .width('100%')
           .padding(18)
           .alignItems(HorizontalAlign.Start)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.bg_card'))
           .borderRadius(12)
           .margin({ top: 12, left: 12, right: 12 })
         }
@@ -122,11 +122,11 @@ struct NotifyDetailPage {
         .layoutWeight(1)
         .scrollBar(BarState.Auto)
         .edgeEffect(EdgeEffect.Spring)
-        .backgroundColor('#F5F5FA')
+        .backgroundColor($r('app.color.bg_page'))
       }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5FA')
+    .backgroundColor($r('app.color.bg_page'))
   }
 }

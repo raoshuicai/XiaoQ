@@ -103,7 +103,7 @@ struct ModelPage {
         // 标题栏
         Row() {
           Button() {
-            Text('← 返回').fontSize(15).fontColor('#5B5BD6')
+            Text('← 返回').fontSize(15).fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -113,12 +113,12 @@ struct ModelPage {
           Text('模型')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#1A1A2E')
+            .fontColor($r('app.color.text_primary'))
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
 
           Button() {
-            Text('刷新').fontSize(15).fontColor('#5B5BD6')
+            Text('刷新').fontSize(15).fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -127,30 +127,30 @@ struct ModelPage {
         }
         .width('100%')
         .padding({ left: 8, right: 8, top: 8, bottom: 8 })
-        .backgroundColor('#F8F9FF')
+        .backgroundColor($r('app.color.bg_card'))
 
         Text('当前模型：' + (this.currentId.length > 0 ? this.currentId : '—') + ' · 切换后下一次对话生效')
           .fontSize(11)
-          .fontColor('#5B5BD6')
+          .fontColor($r('app.color.brand'))
           .width('100%')
           .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.bg_card'))
 
         if (this.loading) {
           Column() {
-            LoadingProgress().width(40).height(40).color('#5B5BD6')
-            Text('加载中…').fontSize(14).fontColor('#999999').margin({ top: 10 })
+            LoadingProgress().width(40).height(40).color($r('app.color.brand'))
+            Text('加载中…').fontSize(14).fontColor($r('app.color.text_tertiary')).margin({ top: 10 })
           }
           .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else if (this.errorMsg.length > 0) {
           Column() {
             Text('⚠️').fontSize(40)
-            Text(this.errorMsg).fontSize(13).fontColor('#999999')
+            Text(this.errorMsg).fontSize(13).fontColor($r('app.color.text_tertiary'))
               .margin({ top: 8 }).textAlign(TextAlign.Center).padding({ left: 32, right: 32 })
             Button() {
-              Text('重试').fontSize(14).fontColor('#FFFFFF')
+              Text('重试').fontSize(14).fontColor($r('app.color.text_on_brand'))
             }
-            .width(120).height(40).backgroundColor('#5B5BD6').borderRadius(20)
+            .width(120).height(40).backgroundColor($r('app.color.brand')).borderRadius(20)
             .margin({ top: 16 })
             .onClick(() => { this.load(); })
           }
@@ -164,18 +164,18 @@ struct ModelPage {
                     Text(m.name)
                       .fontSize(15)
                       .fontWeight(m.id === this.currentId ? FontWeight.Bold : FontWeight.Normal)
-                      .fontColor(m.id === this.currentId ? '#5B5BD6' : '#1A1A2E')
+                      .fontColor(m.id === this.currentId ? $r('app.color.brand') : $r('app.color.text_primary'))
                       .width('100%')
                     Row() {
                       Text(m.provider)
                         .fontSize(11)
-                        .fontColor('#888888')
-                        .backgroundColor('#F0F0F5')
+                        .fontColor($r('app.color.text_tertiary'))
+                        .backgroundColor($r('app.color.bg_input'))
                         .borderRadius(6)
                         .padding({ left: 6, right: 6, top: 2, bottom: 2 })
                       Text(m.id)
                         .fontSize(11)
-                        .fontColor('#BBBBBB')
+                        .fontColor($r('app.color.text_tertiary'))
                         .margin({ left: 8 })
                         .layoutWeight(1)
                         .maxLines(1)
@@ -188,20 +188,20 @@ struct ModelPage {
                   .alignItems(HorizontalAlign.Start)
 
                   if (this.busyId === m.id) {
-                    LoadingProgress().width(20).height(20).color('#5B5BD6')
+                    LoadingProgress().width(20).height(20).color($r('app.color.brand'))
                   } else if (m.id === this.currentId) {
                     Text('✓ 使用中')
                       .fontSize(11)
-                      .fontColor('#2E9E6B')
+                      .fontColor($r('app.color.success'))
                   } else {
                     Text('切换')
                       .fontSize(12)
-                      .fontColor('#5B5BD6')
+                      .fontColor($r('app.color.brand'))
                   }
                 }
                 .width('100%')
                 .padding({ left: 16, right: 16, top: 14, bottom: 14 })
-                .backgroundColor(idx % 2 === 0 ? '#FFFFFF' : '#F7F8FC')
+                .backgroundColor(idx % 2 === 0 ? $r('app.color.text_on_brand') : $r('app.color.bg_page'))
                 .onClick(() => {
                   this.doSwitch(m);
                 })
@@ -210,22 +210,22 @@ struct ModelPage {
           }
           .width('100%')
           .layoutWeight(1)
-          .divider({ strokeWidth: 1, color: '#EEEEF5' })
+          .divider({ strokeWidth: 1, color: $r('app.color.divider') })
           .scrollBar(BarState.Auto)
           .edgeEffect(EdgeEffect.Spring)
         }
 
         Text('共 ' + this.items.length + ' 个可用模型 · 来自 Hermes 配置里实际使用过的模型')
           .fontSize(11)
-          .fontColor('#BBBBBB')
+          .fontColor($r('app.color.text_tertiary'))
           .width('100%')
           .textAlign(TextAlign.Center)
           .padding({ top: 8, bottom: 12 })
-          .backgroundColor('#F5F5FA')
+          .backgroundColor($r('app.color.bg_page'))
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F5F5FA')
+      .backgroundColor($r('app.color.bg_page'))
     }
     .width('100%')
     .height('100%')

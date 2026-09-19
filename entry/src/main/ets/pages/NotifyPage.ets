@@ -120,7 +120,7 @@ struct NotifyPage {
         // 标题栏
         Row() {
           Button() {
-            Text('← 返回').fontSize(15).fontColor('#5B5BD6')
+            Text('← 返回').fontSize(15).fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -130,12 +130,12 @@ struct NotifyPage {
           Text(this.unreadOnly ? '未读通知' : '通知中心')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#1A1A2E')
+            .fontColor($r('app.color.text_primary'))
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
 
           Button() {
-            Text('刷新').fontSize(15).fontColor('#5B5BD6')
+            Text('刷新').fontSize(15).fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -144,14 +144,14 @@ struct NotifyPage {
         }
         .width('100%')
         .padding({ left: 8, right: 8, top: 8, bottom: 8 })
-        .backgroundColor('#F8F9FF')
+        .backgroundColor($r('app.color.bg_card'))
 
         // 工具行：未读筛选 + 全部已读
         Row() {
           Row() {
             Checkbox()
               .select(this.unreadOnly)
-              .selectedColor('#5B5BD6')
+              .selectedColor($r('app.color.brand'))
               .width(18)
               .height(18)
               .onChange((v: boolean) => {
@@ -160,7 +160,7 @@ struct NotifyPage {
               })
             Text('只看未读')
               .fontSize(13)
-              .fontColor('#666666')
+              .fontColor($r('app.color.text_secondary'))
               .margin({ left: 6 })
           }
           .layoutWeight(1)
@@ -169,16 +169,16 @@ struct NotifyPage {
             ? ('未读 ' + badgeText(this.unreadCount))
             : '全部已读')
             .fontSize(13)
-            .fontColor(this.unreadCount > 0 ? '#FF6B35' : '#AAAAAA')
+            .fontColor(this.unreadCount > 0 ? $r('app.color.warning') : $r('app.color.text_tertiary'))
             .margin({ right: 12 })
 
           Button() {
             Text(this.busy ? '处理中…' : '全部已读')
               .fontSize(13)
-              .fontColor('#FFFFFF')
+              .fontColor($r('app.color.text_on_brand'))
           }
           .height(32)
-          .backgroundColor(this.busy || this.unreadCount === 0 ? '#BBBBCC' : '#5B5BD6')
+          .backgroundColor(this.busy || this.unreadCount === 0 ? $r('app.color.text_tertiary') : $r('app.color.brand'))
           .borderRadius(16)
           .enabled(!this.busy && this.unreadCount > 0)
           .onClick(() => {
@@ -187,25 +187,25 @@ struct NotifyPage {
         }
         .width('100%')
         .padding({ left: 16, right: 12, top: 8, bottom: 8 })
-        .backgroundColor('#FFFFFF')
+        .backgroundColor($r('app.color.bg_card'))
 
         if (this.loading) {
           Column() {
-            LoadingProgress().width(40).height(40).color('#5B5BD6')
-            Text('加载中…').fontSize(14).fontColor('#999999').margin({ top: 10 })
+            LoadingProgress().width(40).height(40).color($r('app.color.brand'))
+            Text('加载中…').fontSize(14).fontColor($r('app.color.text_tertiary')).margin({ top: 10 })
           }
           .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else if (this.errorMsg.length > 0) {
           Column() {
             Text('⚠️').fontSize(40)
-            Text('加载失败').fontSize(16).fontColor('#1A1A2E').margin({ top: 8 })
-            Text(this.errorMsg).fontSize(13).fontColor('#999999')
+            Text('加载失败').fontSize(16).fontColor($r('app.color.text_primary')).margin({ top: 8 })
+            Text(this.errorMsg).fontSize(13).fontColor($r('app.color.text_tertiary'))
               .margin({ top: 6 }).textAlign(TextAlign.Center)
               .padding({ left: 32, right: 32 })
             Button() {
-              Text('重试').fontSize(14).fontColor('#FFFFFF')
+              Text('重试').fontSize(14).fontColor($r('app.color.text_on_brand'))
             }
-            .width(120).height(40).backgroundColor('#5B5BD6').borderRadius(20)
+            .width(120).height(40).backgroundColor($r('app.color.brand')).borderRadius(20)
             .margin({ top: 16 })
             .onClick(() => {
               this.load();
@@ -216,7 +216,7 @@ struct NotifyPage {
           Column() {
             Text('📭').fontSize(48)
             Text(this.unreadOnly ? '没有未读通知' : '还没有通知')
-              .fontSize(15).fontColor('#999999').margin({ top: 8 })
+              .fontSize(15).fontColor($r('app.color.text_tertiary')).margin({ top: 8 })
           }
           .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else {
@@ -229,7 +229,7 @@ struct NotifyPage {
                     .width(8)
                     .height(8)
                     .borderRadius(4)
-                    .backgroundColor(m.readAt.length === 0 ? '#5B5BD6' : '#00000000')
+                    .backgroundColor(m.readAt.length === 0 ? $r('app.color.brand') : '#00000000')
                     .margin({ top: 6, right: 8 })
 
                   Column() {
@@ -237,17 +237,17 @@ struct NotifyPage {
                       Text(m.title.length > 0 ? m.title : '(无标题)')
                         .fontSize(14)
                         .fontWeight(m.readAt.length === 0 ? FontWeight.Bold : FontWeight.Normal)
-                        .fontColor(m.readAt.length === 0 ? '#1A1A2E' : '#999999')
+                        .fontColor(m.readAt.length === 0 ? $r('app.color.text_primary') : $r('app.color.text_tertiary'))
                         .layoutWeight(1)
                       Text(shortTime(m.createdAt))
                         .fontSize(11)
-                        .fontColor('#BBBBBB')
+                        .fontColor($r('app.color.text_tertiary'))
                     }
                     .width('100%')
 
                     Text(m.body)
                       .fontSize(13)
-                      .fontColor(m.readAt.length === 0 ? '#555555' : '#AAAAAA')
+                      .fontColor(m.readAt.length === 0 ? $r('app.color.text_secondary') : $r('app.color.text_tertiary'))
                       .lineHeight(19)
                       .maxLines(4)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -259,7 +259,7 @@ struct NotifyPage {
                 }
                 .width('100%')
                 .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-                .backgroundColor(idx % 2 === 0 ? '#FFFFFF' : '#F7F8FC')
+                .backgroundColor(idx % 2 === 0 ? $r('app.color.text_on_brand') : $r('app.color.bg_page'))
                 .alignItems(VerticalAlign.Top)
                 .onClick(() => {
                   this.openDetail(m);
@@ -274,16 +274,16 @@ struct NotifyPage {
 
           Text('点击某条即标记为已读 · 共 ' + this.items.length + ' 条')
             .fontSize(11)
-            .fontColor('#BBBBBB')
+            .fontColor($r('app.color.text_tertiary'))
             .width('100%')
             .textAlign(TextAlign.Center)
             .padding({ top: 8, bottom: 12 })
-            .backgroundColor('#F5F5FA')
+            .backgroundColor($r('app.color.bg_page'))
         }
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F5F5FA')
+      .backgroundColor($r('app.color.bg_page'))
     }
     .width('100%')
     .height('100%')

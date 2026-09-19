@@ -229,7 +229,7 @@ struct SessionsPage {
         // 标题栏
         Row() {
           Button() {
-            Text('← 返回').fontSize(15).fontColor('#5B5BD6')
+            Text('← 返回').fontSize(15).fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -239,12 +239,12 @@ struct SessionsPage {
           Text('会话')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#1A1A2E')
+            .fontColor($r('app.color.text_primary'))
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
 
           Button() {
-            Text('新会话').fontSize(15).fontColor('#5B5BD6')
+            Text('新会话').fontSize(15).fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -253,39 +253,39 @@ struct SessionsPage {
         }
         .width('100%')
         .padding({ left: 8, right: 8, top: 8, bottom: 8 })
-        .backgroundColor('#F8F9FF')
+        .backgroundColor($r('app.color.bg_card'))
 
         // 当前会话提示条
         Row() {
           Text('当前：')
-            .fontSize(11).fontColor('#999999')
+            .fontSize(11).fontColor($r('app.color.text_tertiary'))
           Text(this.activeSessionId.length > 0 ? this.currentTitle() : '（新会话，尚未开始）')
             .fontSize(11)
-            .fontColor(this.activeSessionId.length > 0 ? '#5B5BD6' : '#C77A20')
+            .fontColor(this.activeSessionId.length > 0 ? $r('app.color.brand') : $r('app.color.warning'))
             .layoutWeight(1)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
         .width('100%')
         .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-        .backgroundColor('#FFFFFF')
+        .backgroundColor($r('app.color.bg_card'))
 
         if (this.loading) {
           Column() {
-            LoadingProgress().width(40).height(40).color('#5B5BD6')
-            Text('加载中…').fontSize(14).fontColor('#999999').margin({ top: 10 })
+            LoadingProgress().width(40).height(40).color($r('app.color.brand'))
+            Text('加载中…').fontSize(14).fontColor($r('app.color.text_tertiary')).margin({ top: 10 })
           }
           .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else if (this.errorMsg.length > 0) {
           Column() {
             Text('⚠️').fontSize(40)
-            Text(this.errorMsg).fontSize(13).fontColor('#999999')
+            Text(this.errorMsg).fontSize(13).fontColor($r('app.color.text_tertiary'))
               .margin({ top: 8 }).textAlign(TextAlign.Center)
               .padding({ left: 32, right: 32 })
             Button() {
-              Text('重试').fontSize(14).fontColor('#FFFFFF')
+              Text('重试').fontSize(14).fontColor($r('app.color.text_on_brand'))
             }
-            .width(120).height(40).backgroundColor('#5B5BD6').borderRadius(20)
+            .width(120).height(40).backgroundColor($r('app.color.brand')).borderRadius(20)
             .margin({ top: 16 })
             .onClick(() => {
               this.load(true);
@@ -295,7 +295,7 @@ struct SessionsPage {
         } else if (this.items.length === 0) {
           Column() {
             Text('💬').fontSize(44)
-            Text('还没有会话').fontSize(14).fontColor('#999999').margin({ top: 10 })
+            Text('还没有会话').fontSize(14).fontColor($r('app.color.text_tertiary')).margin({ top: 10 })
           }
           .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else {
@@ -308,28 +308,28 @@ struct SessionsPage {
                     .width(3)
                     .height(38)
                     .borderRadius(2)
-                    .backgroundColor(this.activeSessionId === s.id ? '#5B5BD6' : '#00000000')
+                    .backgroundColor(this.activeSessionId === s.id ? $r('app.color.brand') : '#00000000')
                     .margin({ right: 10 })
 
                   Column() {
                     Text(s.displayTitle())
                       .fontSize(14)
                       .fontWeight(this.activeSessionId === s.id ? FontWeight.Bold : FontWeight.Normal)
-                      .fontColor(this.activeSessionId === s.id ? '#5B5BD6' : '#1A1A2E')
+                      .fontColor(this.activeSessionId === s.id ? $r('app.color.brand') : $r('app.color.text_primary'))
                       .maxLines(1)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
                       .width('100%')
 
                     Row() {
                       Text(s.messageCount + ' 条消息')
-                        .fontSize(11).fontColor('#AAAAAA')
+                        .fontSize(11).fontColor($r('app.color.text_tertiary'))
                       Text('·')
-                        .fontSize(11).fontColor('#DDDDDD').margin({ left: 4, right: 4 })
+                        .fontSize(11).fontColor($r('app.color.divider')).margin({ left: 4, right: 4 })
                       Text(this.tokenText(s.tokens) + ' tokens')
-                        .fontSize(11).fontColor('#AAAAAA')
+                        .fontSize(11).fontColor($r('app.color.text_tertiary'))
                       Blank()
                       Text(relativeTime(s.updatedAt))
-                        .fontSize(11).fontColor('#BBBBBB')
+                        .fontSize(11).fontColor($r('app.color.text_tertiary'))
                     }
                     .width('100%')
                     .margin({ top: 5 })
@@ -342,7 +342,7 @@ struct SessionsPage {
                   //    （uitest longClick 打不中），所以必须给一个看得见的按钮。
                   Text('⋯')
                     .fontSize(22)
-                    .fontColor('#999999')
+                    .fontColor($r('app.color.text_tertiary'))
                     .width(44)
                     .textAlign(TextAlign.Center)
                     .onClick(() => {
@@ -351,7 +351,7 @@ struct SessionsPage {
                 }
                 .width('100%')
                 .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-                .backgroundColor(idx % 2 === 0 ? '#FFFFFF' : '#F7F8FC')
+                .backgroundColor(idx % 2 === 0 ? $r('app.color.text_on_brand') : $r('app.color.bg_page'))
                 .onClick(() => {
                   this.pick(s);
                 })
@@ -371,8 +371,8 @@ struct SessionsPage {
             if (this.hasMore) {
               ListItem() {
                 Column() {
-                  LoadingProgress().width(22).height(22).color('#5B5BD6')
-                  Text('加载更多…').fontSize(12).fontColor('#999999').margin({ top: 6 })
+                  LoadingProgress().width(22).height(22).color($r('app.color.brand'))
+                  Text('加载更多…').fontSize(12).fontColor($r('app.color.text_tertiary')).margin({ top: 6 })
                 }
                 .width('100%')
                 .padding({ top: 14, bottom: 14 })
@@ -384,7 +384,7 @@ struct SessionsPage {
           }
           .width('100%')
           .layoutWeight(1)
-          .divider({ strokeWidth: 1, color: '#EEEEF5' })
+          .divider({ strokeWidth: 1, color: $r('app.color.divider') })
           .scrollBar(BarState.Auto)
           .edgeEffect(EdgeEffect.Spring)
           .onReachEnd(() => {
@@ -394,15 +394,15 @@ struct SessionsPage {
 
         Text('共 ' + this.total + ' 个会话' + (this.hasMore ? '（已加载 ' + this.items.length + '）' : ''))
           .fontSize(11)
-          .fontColor('#BBBBBB')
+          .fontColor($r('app.color.text_tertiary'))
           .width('100%')
           .textAlign(TextAlign.Center)
           .padding({ top: 8, bottom: 12 })
-          .backgroundColor('#F5F5FA')
+          .backgroundColor($r('app.color.bg_page'))
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F5F5FA')
+      .backgroundColor($r('app.color.bg_page'))
 
       // ─── S14：自绘浮层（单状态驱动，不用系统弹窗 API）───
       if (this.layer.length > 0) {
@@ -410,7 +410,7 @@ struct SessionsPage {
           Column() {
             Text(this.targetTitle())
               .fontSize(13)
-              .fontColor('#888888')
+              .fontColor($r('app.color.text_tertiary'))
               .maxLines(1)
               .margin({ bottom: 12 })
 
@@ -418,8 +418,8 @@ struct SessionsPage {
               Button('重命名')
                 .width('100%')
                 .height(46)
-                .backgroundColor('#F0F1F5')
-                .fontColor('#1A1A2E')
+                .backgroundColor($r('app.color.bg_input'))
+                .fontColor($r('app.color.text_primary'))
                 .onClick(() => {
                   if (this.menuTarget !== null) { this.openRename(this.menuTarget); }
                 })
@@ -427,8 +427,8 @@ struct SessionsPage {
                 .width('100%')
                 .height(46)
                 .margin({ top: 8 })
-                .backgroundColor('#FDECEC')
-                .fontColor('#E5484D')
+                .backgroundColor($r('app.color.danger_soft'))
+                .fontColor($r('app.color.danger'))
                 .onClick(() => {
                   if (this.menuTarget !== null) { this.openDelete(this.menuTarget); }
                 })
@@ -443,21 +443,21 @@ struct SessionsPage {
                 .width('100%')
                 .height(44)
                 .margin({ top: 12 })
-                .backgroundColor('#5B5BD6')
-                .fontColor('#FFFFFF')
+                .backgroundColor($r('app.color.brand'))
+                .fontColor($r('app.color.text_on_brand'))
                 .onClick(() => { this.doRename(this.renameText); })
             }
 
             if (this.layer === 'delete') {
               Text('将从列表中移除。服务端只标记隐藏，聊天记录不会真删，可恢复。')
                 .fontSize(13)
-                .fontColor('#666666')
+                .fontColor($r('app.color.text_secondary'))
                 .margin({ bottom: 14 })
               Button('确认删除')
                 .width('100%')
                 .height(44)
-                .backgroundColor('#E5484D')
-                .fontColor('#FFFFFF')
+                .backgroundColor($r('app.color.danger'))
+                .fontColor($r('app.color.text_on_brand'))
                 .onClick(() => {
                   if (this.menuTarget !== null) { this.doDelete(this.menuTarget); }
                 })
@@ -467,19 +467,19 @@ struct SessionsPage {
               .width('100%')
               .height(44)
               .margin({ top: 8 })
-              .backgroundColor('#F0F1F5')
-              .fontColor('#555555')
+              .backgroundColor($r('app.color.bg_input'))
+              .fontColor($r('app.color.text_secondary'))
               .onClick(() => { this.closeLayer(); })
           }
           .width('80%')
           .padding(16)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.bg_card'))
           .borderRadius(14)
         }
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Center)
-        .backgroundColor('#66000000')
+        .backgroundColor($r('app.color.scrim'))
       }
     }
     .width('100%')

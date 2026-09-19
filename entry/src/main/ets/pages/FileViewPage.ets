@@ -152,7 +152,7 @@ struct FileViewPage {
           Button() {
             Text('← 返回')
               .fontSize(15)
-              .fontColor('#5B5BD6')
+              .fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -164,7 +164,7 @@ struct FileViewPage {
           Text(this.fileName)
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#1A1A2E')
+            .fontColor($r('app.color.text_primary'))
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
             .maxLines(1)
@@ -178,7 +178,7 @@ struct FileViewPage {
           // S17：一键复制全文（Web 渲染时正文本地也有纯文本，见 loadContent）
           Text('复制')
             .fontSize(15)
-            .fontColor('#5B5BD6')
+            .fontColor($r('app.color.brand'))
             .width(60)
             .textAlign(TextAlign.Center)
             .onClick(() => {
@@ -187,7 +187,7 @@ struct FileViewPage {
         }
         .width('100%')
         .padding({ left: 8, right: 16, top: 8, bottom: 8 })
-        .backgroundColor('#F8F9FF')
+        .backgroundColor($r('app.color.bg_card'))
 
         // 正文
         if (this.isLoading) {
@@ -195,10 +195,10 @@ struct FileViewPage {
             LoadingProgress()
               .width(40)
               .height(40)
-              .color('#5B5BD6')
+              .color($r('app.color.brand'))
             Text('加载中...')
               .fontSize(14)
-              .fontColor('#999999')
+              .fontColor($r('app.color.text_tertiary'))
               .margin({ top: 12 })
           }
           .width('100%')
@@ -232,12 +232,12 @@ struct FileViewPage {
             })
             .width('100%')
             .layoutWeight(1)
-            .backgroundColor('#FFFFFF')
+            .backgroundColor($r('app.color.bg_card'))
         } else {
           Scroll() {
             Text(this.fileContent)
               .fontSize(14)
-              .fontColor('#333333')
+              .fontColor($r('app.color.text_secondary'))
               .lineHeight(24)
               .width('100%')
               .padding({ left: 16, right: 16, top: 12, bottom: 24 })
@@ -245,12 +245,12 @@ struct FileViewPage {
           .scrollBar(BarState.Auto)
           .width('100%')
           .layoutWeight(1)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.bg_card'))
         }
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F5F5FA')
+      .backgroundColor($r('app.color.bg_page'))
 
       // S7：审批浮层 —— 本页在前台时也能收到审批请求
       ApproveLayer({ pageName: 'fileview' })

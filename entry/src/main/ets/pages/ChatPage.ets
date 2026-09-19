@@ -1,6 +1,7 @@
 import { promptAction } from '@kit.ArkUI';
 import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
+import { FontSize, Radius, Space, Size } from '../core/Theme.ets';
 import { HermesApi } from '../utils/HermesApi.ets';
 import { saveApiKey, loadApiKey, getOrCreateDeviceId, loadActiveSessionId, saveActiveSessionId } from '../utils/PreferencesHelper.ets';
 // S23：本地图片/文件选择 + 上传
@@ -35,7 +36,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.11.0';
+const APP_VERSION: string = '2.11.1';
 
 @Entry
 @Component
@@ -59,6 +60,13 @@ struct ChatPage {
   // S7：审批状态（showDialog/approveRunId/approveCommand/approvePatterns/
   // approveInProgress）全部移入 services/ApproveService.ets
   @State deleteMsgIndex: number = -1;
+
+  /**
+   * S27：顶部「Q」菜单展开状态。
+   * ⚠️ 必须由页面持有：AppHeader 根容器高度只有 52px，浮层画在它里面会被裁剪
+   *    （用户报"点 Q 没菜单"就是这个原因）。放到本页全屏 Stack 里渲染才显示得出来。
+   */
+  @State headerMenuOpen: boolean = false;
 
   private hermesApi: HermesApi = new HermesApi('', '');
   private deviceId: string = '';                                       // S2：设备ID（原 wsClient.clientId）
@@ -88,8 +96,8 @@ struct ChatPage {
       title: '删除消息',
       message: '确定要删除这条消息吗？',
       buttons: [
-        { text: '取消', color: '#999999' },
-        { text: '删除', color: '#FF4444' }
+        { text: '取消', color: $r('app.color.text_tertiary') },
+        { text: '删除', color: $r('app.color.danger') }
       ]
     }).then((result) => {
       if (result.index === 1) {
@@ -119,6 +127,24 @@ struct ChatPage {
   // engine 内部用 pendingIndicator 标志代替"遍历 messageList 找占位符"的判断。
 
   // S4：scheduleSaveMessages / saveTimer 已下沉到 ChatService（防抖持久化在服务内）
+
+  /** S27：顶部菜单项（点完先关菜单再执行）*/
+  @Builder
+  HeaderMenuRow(icon: string, label: string, handler: () => void) {
+    Row() {
+      Text(icon).fontSize(FontSize.BODY).width(28)
+      Text(label)
+        .fontSize(FontSize.LABEL)
+        .fontColor($r('app.color.text_primary'))
+        .layoutWeight(1)
+    }
+    .width('100%')
+    .padding({ left: Space.M, right: Space.M, top: 13, bottom: 13 })
+    .onClick(() => {
+      this.headerMenuOpen = false;
+      handler();
+    })
+  }
 
   private navigateToFiles(): void {
     router.pushUrl({ url: 'pages/FilesPage' });
@@ -626,6 +652,7 @@ struct ChatPage {
       Column() {
         // 标题栏（S6：抽为 AppHeader 组件）
         AppHeader({
+          menuOpen: $headerMenuOpen,
           onFiles: () => {
             this.navigateToFiles();
           },
@@ -748,6 +775,47 @@ struct ChatPage {
           this.onApproveResult(ok, choice);
         }
       })
+      // ─── S27：顶部「Q」菜单浮层 ───
+      // ⚠️ 画在本页全屏 Stack 里，不能画在 AppHeader 内部（后者根容器只有 52px 高会被裁掉）
+      if (this.headerMenuOpen) {
+        Column() {
+          Column() {
+            this.HeaderMenuRow('💬', '会话列表', (): void => {
+              router.pushUrl({ url: 'pages/SessionsPage' });
+            })
+            this.HeaderMenuRow('📊', 'Token 用量', (): void => {
+              router.pushUrl({ url: 'pages/TokensPage' });
+            })
+            this.HeaderMenuRow('📁', '知识库', (): void => {
+              this.navigateToFiles();
+            })
+            this.HeaderMenuRow('🔔', '通知中心', (): void => {
+              router.pushUrl({ url: 'pages/NotifyPage' });
+            })
+            this.HeaderMenuRow('⏰', '定时任务', (): void => {
+              router.pushUrl({ url: 'pages/CronPage' });
+            })
+            this.HeaderMenuRow('⚙️', '设置', (): void => {
+              this.tempApiKey = this.apiKey;
+              this.showSettings = true;
+            })
+          }
+          .width('72%')
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(Radius.CARD)
+          .padding({ top: Space.S, bottom: Space.S })
+          .margin({ left: Space.L, top: Size.HEADER_H + Space.XS })
+          .alignItems(HorizontalAlign.Start)
+        }
+        .width('100%')
+        .height('100%')
+        .alignItems(HorizontalAlign.Start)
+        .justifyContent(FlexAlign.Start)
+        .backgroundColor($r('app.color.scrim'))
+        .onClick(() => {
+          this.headerMenuOpen = false;
+        })
+      }
     }
     .width('100%')
     .height('100%')

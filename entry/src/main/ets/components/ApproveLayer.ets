@@ -108,9 +108,9 @@ export struct ApproveLayer {
               Row() {
                 Text('🔑').fontSize(28).margin({ right: 10 })
                 Column() {
-                  Text('授权请求').fontSize(12).fontColor('#888888')
+                  Text('授权请求').fontSize(12).fontColor($r('app.color.text_tertiary'))
                   Text('需要先配置密钥').fontSize(18).fontWeight(FontWeight.Bold)
-                    .fontColor('#1A1A2E').lineHeight(24)
+                    .fontColor($r('app.color.text_primary')).lineHeight(24)
                 }
                 .alignItems(HorizontalAlign.Start)
                 .layoutWeight(1)
@@ -120,7 +120,7 @@ export struct ApproveLayer {
 
               Text('小Q 收到一条授权请求，但当前还没有配置 API 密钥，无法提交处理结果。')
                 .fontSize(13)
-                .fontColor('#666666')
+                .fontColor($r('app.color.text_secondary'))
                 .lineHeight(20)
                 .width('100%')
                 .margin({ bottom: 8 })
@@ -128,30 +128,30 @@ export struct ApproveLayer {
               if (this.reqCommand.length > 0) {
                 Text(this.reqCommand)
                   .fontSize(13)
-                  .fontColor('#FFFFFF')
+                  .fontColor($r('app.color.text_on_brand'))
                   .fontFamily('Courier')
                   .lineHeight(20)
                   .width('100%')
                   .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-                  .backgroundColor('#1A1A2E')
+                  .backgroundColor($r('app.color.text_primary'))
                   .borderRadius(8)
                   .margin({ bottom: 12 })
               }
 
               Row() {
                 Button() {
-                  Text('去配置').fontSize(14).fontColor('#FFFFFF')
+                  Text('去配置').fontSize(14).fontColor($r('app.color.text_on_brand'))
                 }
-                .layoutWeight(1).height(44).backgroundColor('#5B5BD6').borderRadius(10)
+                .layoutWeight(1).height(44).backgroundColor($r('app.color.brand')).borderRadius(10)
                 .margin({ right: 6 })
                 .onClick(() => {
                   this.onGoSettings();
                 })
 
                 Button() {
-                  Text('稍后').fontSize(14).fontColor('#666666')
+                  Text('稍后').fontSize(14).fontColor($r('app.color.text_secondary'))
                 }
-                .layoutWeight(1).height(44).backgroundColor('#F0F0F5').borderRadius(10)
+                .layoutWeight(1).height(44).backgroundColor($r('app.color.bg_input')).borderRadius(10)
                 .margin({ left: 6 })
                 .onClick(() => {
                   approveService.dismissCurrent();
@@ -161,12 +161,12 @@ export struct ApproveLayer {
             }
             .width('100%')
             .padding(24)
-            .backgroundColor('#FFFFFF')
+            .backgroundColor($r('app.color.bg_card'))
             .borderRadius({ topLeft: 20, topRight: 20 })
           }
           .width('100%')
           .height('100%')
-          .backgroundColor('#66000000')
+          .backgroundColor($r('app.color.scrim'))
           .justifyContent(FlexAlign.End)
           .onClick(() => {
             approveService.dismissCurrent();

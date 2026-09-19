@@ -47,16 +47,16 @@ export struct SettingsPanel {
     Row() {
       Text(icon)
         .fontSize(14)
-        .fontColor('#1A1A2E')
+        .fontColor($r('app.color.text_primary'))
         .layoutWeight(1)
       Text(hint + '  ›')
         .fontSize(12)
-        .fontColor('#AAAAAA')
+        .fontColor($r('app.color.text_tertiary'))
     }
     .width('100%')
     .height(44)
     .padding({ left: 14, right: 14 })
-    .backgroundColor('#F5F5FA')
+    .backgroundColor($r('app.color.bg_page'))
     .borderRadius(10)
     .margin({ bottom: 6 })
     .onClick(() => {
@@ -72,12 +72,12 @@ export struct SettingsPanel {
         Text('设置')
           .fontSize(18)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#1A1A2E')
+          .fontColor($r('app.color.text_primary'))
         Blank()
         Button() {
           Text('✕')
             .fontSize(18)
-            .fontColor('#999999')
+            .fontColor($r('app.color.text_tertiary'))
         }
         .width(36)
         .height(36)
@@ -92,37 +92,37 @@ export struct SettingsPanel {
       // 当前网络状态（只读提示）
       Text('当前网络')
         .fontSize(14)
-        .fontColor('#666666')
+        .fontColor($r('app.color.text_secondary'))
         .width('100%')
         .margin({ bottom: 6 })
       Row() {
         Text(this.networkMode)
           .fontSize(14)
-          .fontColor('#5B5BD6')
+          .fontColor($r('app.color.brand'))
           .fontWeight(FontWeight.Medium)
       }
       .width('100%')
       .height(44)
-      .backgroundColor('#F5F5FA')
+      .backgroundColor($r('app.color.bg_page'))
       .borderRadius(10)
       .padding({ left: 12 })
 
       Text('在家自动走内网直连，出门自动切公网')
         .fontSize(12)
-        .fontColor('#AAAAAA')
+        .fontColor($r('app.color.text_tertiary'))
         .width('100%')
         .margin({ top: 4, bottom: 16 })
 
       // API 密钥
       Text('API 密钥')
         .fontSize(14)
-        .fontColor('#666666')
+        .fontColor($r('app.color.text_secondary'))
         .width('100%')
         .margin({ bottom: 6 })
       TextInput({ placeholder: '输入Bearer Token', text: this.tempKey })
         .width('100%')
         .height(44)
-        .backgroundColor('#F5F5FA')
+        .backgroundColor($r('app.color.bg_page'))
         .borderRadius(10)
         .padding({ left: 12 })
         .type(InputType.Password)
@@ -132,7 +132,7 @@ export struct SettingsPanel {
 
       Text('密钥在 Hermes 的 .env 文件中（API_SERVER_KEY）')
         .fontSize(12)
-        .fontColor('#AAAAAA')
+        .fontColor($r('app.color.text_tertiary'))
         .width('100%')
         .margin({ top: 8 })
 
@@ -145,21 +145,21 @@ export struct SettingsPanel {
 
       Text('审批历史为本地记录；模型切换下次对话生效')
         .fontSize(11)
-        .fontColor('#AAAAAA')
+        .fontColor($r('app.color.text_tertiary'))
         .width('100%')
         .margin({ bottom: 10 })
 
       // 版本信息
       Text('小Q v' + this.appVersion)
         .fontSize(12)
-        .fontColor('#BBBBBB')
+        .fontColor($r('app.color.text_tertiary'))
         .width('100%')
         .textAlign(TextAlign.Center)
         .margin({ top: 16, bottom: 4 })
 
       Text('由 Hermes Agent 驱动')
         .fontSize(11)
-        .fontColor('#CCCCCC')
+        .fontColor($r('app.color.divider'))
         .width('100%')
         .textAlign(TextAlign.Center)
         .margin({ bottom: 8 })
@@ -168,12 +168,12 @@ export struct SettingsPanel {
       Button() {
         Text('保存')
           .fontSize(16)
-          .fontColor('#FFFFFF')
+          .fontColor($r('app.color.text_on_brand'))
           .fontWeight(FontWeight.Medium)
       }
       .width('100%')
       .height(48)
-      .backgroundColor('#5B5BD6')
+      .backgroundColor($r('app.color.brand'))
       .borderRadius(24)
       .onClick(() => {
         this.onSave(this.tempKey);
@@ -182,7 +182,7 @@ export struct SettingsPanel {
     .width('100%')
     .height('72%')
     .padding({ left: 24, right: 24, top: 24, bottom: 32 })
-    .backgroundColor('#FFFFFF')
+    .backgroundColor($r('app.color.bg_card'))
     .borderRadius({ topLeft: 20, topRight: 20 })
   }
 }

@@ -29,8 +29,13 @@ export struct AppHeader {
 
   /** 未读数：@StorageLink 绑 AppStorage，任何页面写入即自动刷新角标 */
   @StorageLink('unreadCount') unreadCount: number = 0;
-  /** 菜单展开状态 */
-  @State menuOpen: boolean = false;
+  /**
+   * 菜单展开状态 —— **由父组件持有**（@Link）。
+   * ⚠️ 浮层不能画在本组件里: 本组件根 Stack 的高度是 HEADER_H(52px),
+   *    浮层写在里面会被裁剪成 52px 高, 表现为"点了没反应"。
+   *    所以这里只负责改状态, 真正渲染菜单的是父组件(ChatPage)的全屏 Stack。
+   */
+  @Link menuOpen: boolean;
 
   private openMenu(): void {
     this.menuOpen = true;
@@ -59,9 +64,9 @@ export struct AppHeader {
   }
 
   build() {
-    Stack() {
-      // ─────────── 顶部栏本体 ───────────
-      Row() {
+    // ⚠️ 这里**不要包 Stack**：根容器高度只有 HEADER_H，任何外溢内容都会被裁剪。
+    //    菜单浮层由父组件渲染（见 menuOpen 的注释）。
+    Row() {
         // 左上角：圆形「Q」
         Text('Q')
           .fontSize(FontSize.HEADING)
@@ -122,34 +127,6 @@ export struct AppHeader {
       .padding({ left: Space.L, right: Space.L })
       .backgroundColor($r('app.color.bg_card'))
 
-      // ─────────── 「Q」菜单浮层（自绘）───────────
-      if (this.menuOpen) {
-        Column() {
-          Column() {
-            this.MenuRow('💬', '会话列表', (): void => { this.onSessions(); })
-            this.MenuRow('📊', 'Token 用量', (): void => { this.onTokens(); })
-            this.MenuRow('📁', '知识库', (): void => { this.onFiles(); })
-            this.MenuRow('🔔', '通知中心', (): void => { this.onNotify(); })
-            this.MenuRow('⏰', '定时任务', (): void => { this.onCron(); })
-            this.MenuRow('⚙️', '设置', (): void => { this.onSettings(); })
-          }
-          .width('72%')
-          .backgroundColor($r('app.color.bg_card'))
-          .borderRadius(Radius.CARD)
-          .padding({ top: Space.S, bottom: Space.S })
-          .margin({ left: Space.L, top: Size.HEADER_H + Space.M })
-          .alignItems(HorizontalAlign.Start)
-        }
-        .width('100%')
-        .height('100%')
-        .alignItems(HorizontalAlign.Start)
-        .justifyContent(FlexAlign.Start)
-        .backgroundColor($r('app.color.scrim'))
-        .onClick(() => {
-          this.closeMenu();
-        })
-      }
-    }
     .width('100%')
     .height(Size.HEADER_H)
   }

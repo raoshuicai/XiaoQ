@@ -192,11 +192,11 @@ struct CronDetailPage {
   }
 
   @Builder
-  FieldRow(label: string, value: string, valueColor: string) {
+  FieldRow(label: string, value: string, valueColor: ResourceColor) {
     Row() {
       Text(label)
         .fontSize(13)
-        .fontColor('#888888')
+        .fontColor($r('app.color.text_tertiary'))
         .width(84)
       Text(value.length > 0 ? value : '—')
         .fontSize(13)
@@ -213,7 +213,7 @@ struct CronDetailPage {
     Text(t)
       .fontSize(13)
       .fontWeight(FontWeight.Medium)
-      .fontColor('#5B5BD6')
+      .fontColor($r('app.color.brand'))
       .width('100%')
       .margin({ bottom: 4 })
   }
@@ -224,7 +224,7 @@ struct CronDetailPage {
         // 标题栏
         Row() {
           Button() {
-            Text('← 返回').fontSize(15).fontColor('#5B5BD6')
+            Text('← 返回').fontSize(15).fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -234,12 +234,12 @@ struct CronDetailPage {
           Text('任务详情')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#1A1A2E')
+            .fontColor($r('app.color.text_primary'))
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
 
           Button() {
-            Text(this.editing ? '取消' : '编辑').fontSize(15).fontColor('#5B5BD6')
+            Text(this.editing ? '取消' : '编辑').fontSize(15).fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -256,24 +256,24 @@ struct CronDetailPage {
         }
         .width('100%')
         .padding({ left: 8, right: 8, top: 8, bottom: 8 })
-        .backgroundColor('#F8F9FF')
+        .backgroundColor($r('app.color.bg_card'))
 
         if (this.loading) {
           Column() {
-            LoadingProgress().width(40).height(40).color('#5B5BD6')
-            Text('加载中…').fontSize(14).fontColor('#999999').margin({ top: 10 })
+            LoadingProgress().width(40).height(40).color($r('app.color.brand'))
+            Text('加载中…').fontSize(14).fontColor($r('app.color.text_tertiary')).margin({ top: 10 })
           }
           .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else if (this.errorMsg.length > 0) {
           Column() {
             Text('⚠️').fontSize(40)
-            Text(this.errorMsg).fontSize(13).fontColor('#999999')
+            Text(this.errorMsg).fontSize(13).fontColor($r('app.color.text_tertiary'))
               .margin({ top: 8 }).textAlign(TextAlign.Center)
               .padding({ left: 32, right: 32 })
             Button() {
-              Text('重试').fontSize(14).fontColor('#FFFFFF')
+              Text('重试').fontSize(14).fontColor($r('app.color.text_on_brand'))
             }
-            .width(120).height(40).backgroundColor('#5B5BD6').borderRadius(20)
+            .width(120).height(40).backgroundColor($r('app.color.brand')).borderRadius(20)
             .margin({ top: 16 })
             .onClick(() => {
               this.load();
@@ -288,22 +288,22 @@ struct CronDetailPage {
                 Text(this.detail.name.length > 0 ? this.detail.name : this.detail.id)
                   .fontSize(17)
                   .fontWeight(FontWeight.Bold)
-                  .fontColor('#1A1A2E')
+                  .fontColor($r('app.color.text_primary'))
                   .width('100%')
                 Row() {
                   Text(this.detail.enabled ? '● 已启用' : '● 已暂停')
                     .fontSize(12)
-                    .fontColor(this.detail.enabled ? '#2E9E6B' : '#C77A20')
+                    .fontColor(this.detail.enabled ? $r('app.color.success') : $r('app.color.warning'))
                   Text(this.detail.noAgent ? '脚本' : 'Agent')
                     .fontSize(11)
-                    .fontColor('#5B5BD6')
-                    .backgroundColor('#F0F0FF')
+                    .fontColor($r('app.color.brand'))
+                    .backgroundColor($r('app.color.brand_soft'))
                     .borderRadius(6)
                     .padding({ left: 6, right: 6, top: 2, bottom: 2 })
                     .margin({ left: 10 })
                   Text('投递 ' + this.detail.deliver)
                     .fontSize(11)
-                    .fontColor('#AAAAAA')
+                    .fontColor($r('app.color.text_tertiary'))
                     .margin({ left: 10 })
                 }
                 .width('100%')
@@ -311,7 +311,7 @@ struct CronDetailPage {
               }
               .width('100%')
               .padding(16)
-              .backgroundColor('#FFFFFF')
+              .backgroundColor($r('app.color.bg_card'))
               .borderRadius(14)
               .alignItems(HorizontalAlign.Start)
               .margin({ bottom: 10 })
@@ -321,24 +321,24 @@ struct CronDetailPage {
                 Column() {
                   this.SectionTitle('编辑')
                   Text('名称')
-                    .fontSize(12).fontColor('#888888').width('100%').margin({ top: 6, bottom: 4 })
+                    .fontSize(12).fontColor($r('app.color.text_tertiary')).width('100%').margin({ top: 6, bottom: 4 })
                   TextInput({ text: this.editName, placeholder: '任务名称' })
                     .width('100%').height(42)
-                    .backgroundColor('#F5F5FA').borderRadius(10)
+                    .backgroundColor($r('app.color.bg_page')).borderRadius(10)
                     .padding({ left: 12 })
                     .onChange((v: string) => { this.editName = v; })
 
                   Text('调度表达式')
-                    .fontSize(12).fontColor('#888888').width('100%').margin({ top: 12, bottom: 4 })
+                    .fontSize(12).fontColor($r('app.color.text_tertiary')).width('100%').margin({ top: 12, bottom: 4 })
                   TextInput({ text: this.editSchedule, placeholder: '如 0 9 * * * 或 every 2h' })
                     .width('100%').height(42)
-                    .backgroundColor('#F5F5FA').borderRadius(10)
+                    .backgroundColor($r('app.color.bg_page')).borderRadius(10)
                     .padding({ left: 12 })
                     .onChange((v: string) => { this.editSchedule = v; })
 
                   Text('支持：cron 表达式（0 9 * * *）· 间隔（every 2h）· 一次性（30m / 2h）\n改动调度后，下次执行时间会自动重算')
                     .fontSize(11)
-                    .fontColor('#AAAAAA')
+                    .fontColor($r('app.color.text_tertiary'))
                     .width('100%')
                     .lineHeight(16)
                     .margin({ top: 8 })
@@ -347,10 +347,10 @@ struct CronDetailPage {
                   if (!this.detail.noAgent) {
                     Row() {
                       Text('提示词（Prompt）')
-                        .fontSize(12).fontColor('#888888')
+                        .fontSize(12).fontColor($r('app.color.text_tertiary'))
                       Blank()
                       Text(this.editPrompt.length + ' 字')
-                        .fontSize(11).fontColor('#BBBBBB')
+                        .fontSize(11).fontColor($r('app.color.text_tertiary'))
                     }
                     .width('100%')
                     .margin({ top: 14, bottom: 4 })
@@ -358,7 +358,7 @@ struct CronDetailPage {
                     TextArea({ text: this.editPrompt, placeholder: '这个任务每次运行时给 Agent 的指令' })
                       .width('100%')
                       .height(200)
-                      .backgroundColor('#F5F5FA')
+                      .backgroundColor($r('app.color.bg_page'))
                       .borderRadius(10)
                       .padding(12)
                       .fontSize(12)
@@ -368,24 +368,24 @@ struct CronDetailPage {
 
                     Text('⚠️ 提示词决定任务每次执行做什么，改前请确认内容。留空表示不修改。')
                       .fontSize(11)
-                      .fontColor('#C77A20')
+                      .fontColor($r('app.color.warning'))
                       .width('100%')
                       .lineHeight(16)
                       .margin({ top: 6 })
                   } else {
                     Text('该任务是脚本类型，直接执行 ' + this.detail.script + '，没有提示词。')
                       .fontSize(11)
-                      .fontColor('#AAAAAA')
+                      .fontColor($r('app.color.text_tertiary'))
                       .width('100%')
                       .margin({ top: 10 })
                   }
 
                   Button() {
                     Text(this.saving ? '保存中…' : '保存')
-                      .fontSize(15).fontColor('#FFFFFF')
+                      .fontSize(15).fontColor($r('app.color.text_on_brand'))
                   }
                   .width('100%').height(44)
-                  .backgroundColor(this.saving ? '#9999CC' : '#5B5BD6')
+                  .backgroundColor(this.saving ? $r('app.color.brand_pressed') : $r('app.color.brand'))
                   .borderRadius(22)
                   .margin({ top: 14 })
                   .enabled(!this.saving)
@@ -395,7 +395,7 @@ struct CronDetailPage {
                 }
                 .width('100%')
                 .padding(16)
-                .backgroundColor('#FFFFFF')
+                .backgroundColor($r('app.color.bg_card'))
                 .borderRadius(14)
                 .alignItems(HorizontalAlign.Start)
                 .margin({ bottom: 10 })
@@ -404,30 +404,30 @@ struct CronDetailPage {
               // ── 调度与执行 ──
               Column() {
                 this.SectionTitle('调度与执行')
-                this.FieldRow('调度', this.detail.schedule, '#1A1A2E')
-                this.FieldRow('下次执行', shortDateTime(this.detail.nextRunAt), '#1A1A2E')
+                this.FieldRow('调度', this.detail.schedule, $r('app.color.text_primary'))
+                this.FieldRow('下次执行', shortDateTime(this.detail.nextRunAt), $r('app.color.text_primary'))
                 this.FieldRow('上次执行', shortDateTime(this.detail.lastRunAt),
-                  this.detail.lastRunAt.length > 0 ? '#1A1A2E' : '#AAAAAA')
+                  this.detail.lastRunAt.length > 0 ? $r('app.color.text_primary') : $r('app.color.text_tertiary'))
                 this.FieldRow('上次结果',
                   this.detail.lastStatus.length > 0 ? this.detail.lastStatus : '（未执行过）',
-                  this.detail.lastStatus === 'ok' ? '#2E9E6B'
-                    : (hasError(this.detail) ? '#D93025' : '#AAAAAA'))
-                this.FieldRow('已执行次数', String(this.detail.repeatCompleted) + ' 次', '#1A1A2E')
-                this.FieldRow('创建时间', shortDateTime(this.detail.createdAt), '#888888')
-                this.FieldRow('任务 ID', this.detail.id, '#888888')
+                  this.detail.lastStatus === 'ok' ? $r('app.color.success')
+                    : (hasError(this.detail) ? $r('app.color.danger') : $r('app.color.text_tertiary')))
+                this.FieldRow('已执行次数', String(this.detail.repeatCompleted) + ' 次', $r('app.color.text_primary'))
+                this.FieldRow('创建时间', shortDateTime(this.detail.createdAt), $r('app.color.text_tertiary'))
+                this.FieldRow('任务 ID', this.detail.id, $r('app.color.text_tertiary'))
 
                 if (this.detail.pausedAt.length > 0) {
-                  this.FieldRow('暂停于', shortDateTime(this.detail.pausedAt), '#C77A20')
+                  this.FieldRow('暂停于', shortDateTime(this.detail.pausedAt), $r('app.color.warning'))
                 }
 
                 if (hasError(this.detail) && this.detail.lastError.length > 0) {
                   Text('错误详情')
-                    .fontSize(12).fontColor('#D93025')
+                    .fontSize(12).fontColor($r('app.color.danger'))
                     .width('100%').margin({ top: 10, bottom: 4 })
                   Scroll() {
                     Text(this.detail.lastError)
                       .fontSize(11)
-                      .fontColor('#D93025')
+                      .fontColor($r('app.color.danger'))
                       .fontFamily('Courier')
                       .lineHeight(16)
                       .width('100%')
@@ -444,7 +444,7 @@ struct CronDetailPage {
                   Button() {
                     Text(this.detail.enabled ? '暂停' : '启用')
                       .fontSize(14)
-                      .fontColor(this.detail.enabled ? '#C77A20' : '#2E9E6B')
+                      .fontColor(this.detail.enabled ? $r('app.color.warning') : $r('app.color.success'))
                   }
                   .layoutWeight(1).height(40)
                   .backgroundColor(this.detail.enabled ? '#FFF8ED' : '#F0FFF5')
@@ -458,10 +458,10 @@ struct CronDetailPage {
                   Button() {
                     Text(this.busy ? '处理中…' : '立即执行')
                       .fontSize(14)
-                      .fontColor(this.detail.enabled ? '#FFFFFF' : '#BBBBBB')
+                      .fontColor(this.detail.enabled ? $r('app.color.text_on_brand') : $r('app.color.text_tertiary'))
                   }
                   .layoutWeight(1).height(40)
-                  .backgroundColor(this.detail.enabled ? '#5B5BD6' : '#EEEEF5')
+                  .backgroundColor(this.detail.enabled ? $r('app.color.brand') : $r('app.color.divider'))
                   .borderRadius(20)
                   .margin({ left: 6 })
                   .enabled(this.detail.enabled && !this.busy)
@@ -474,7 +474,7 @@ struct CronDetailPage {
               }
               .width('100%')
               .padding(16)
-              .backgroundColor('#FFFFFF')
+              .backgroundColor($r('app.color.bg_card'))
               .borderRadius(14)
               .alignItems(HorizontalAlign.Start)
               .margin({ bottom: 10 })
@@ -483,38 +483,38 @@ struct CronDetailPage {
               Column() {
                 this.SectionTitle('任务内容')
                 if (this.detail.noAgent) {
-                  this.FieldRow('执行脚本', this.detail.script, '#1A1A2E')
+                  this.FieldRow('执行脚本', this.detail.script, $r('app.color.text_primary'))
                   Text('该任务直接执行脚本，不经过 Agent。')
-                    .fontSize(11).fontColor('#AAAAAA').width('100%').margin({ top: 6 })
+                    .fontSize(11).fontColor($r('app.color.text_tertiary')).width('100%').margin({ top: 6 })
                 } else if (this.detail.prompt.length > 0) {
                   Text('提示词（Prompt）')
-                    .fontSize(12).fontColor('#888888').width('100%').margin({ top: 4, bottom: 6 })
+                    .fontSize(12).fontColor($r('app.color.text_tertiary')).width('100%').margin({ top: 4, bottom: 6 })
                   Scroll() {
                     Text(this.detail.prompt)
                       .fontSize(12)
-                      .fontColor('#333333')
+                      .fontColor($r('app.color.text_secondary'))
                       .lineHeight(19)
                       .width('100%')
                   }
                   .width('100%')
                   .constraintSize({ maxHeight: 300 })
                   .padding(12)
-                  .backgroundColor('#F8F8FC')
+                  .backgroundColor($r('app.color.bg_page'))
                   .borderRadius(8)
                 } else {
-                  Text('（无内容）').fontSize(12).fontColor('#AAAAAA')
+                  Text('（无内容）').fontSize(12).fontColor($r('app.color.text_tertiary'))
                 }
 
                 if (this.detail.skills.length > 0) {
-                  this.FieldRow('关联技能', this.detail.skills.join(', '), '#5B5BD6')
+                  this.FieldRow('关联技能', this.detail.skills.join(', '), $r('app.color.brand'))
                 }
                 if (this.detail.model !== undefined && this.detail.model.length > 0) {
-                  this.FieldRow('指定模型', this.detail.model, '#888888')
+                  this.FieldRow('指定模型', this.detail.model, $r('app.color.text_tertiary'))
                 }
               }
               .width('100%')
               .padding(16)
-              .backgroundColor('#FFFFFF')
+              .backgroundColor($r('app.color.bg_card'))
               .borderRadius(14)
               .alignItems(HorizontalAlign.Start)
               .margin({ bottom: 10 })
@@ -525,27 +525,27 @@ struct CronDetailPage {
                   this.SectionTitle('运行历史')
                   Blank()
                   Text(this.outputs.length + ' 条')
-                    .fontSize(11).fontColor('#AAAAAA')
+                    .fontSize(11).fontColor($r('app.color.text_tertiary'))
                 }
                 .width('100%')
 
                 if (this.outputs.length === 0) {
                   Text('还没有运行记录（output 目录为空）')
-                    .fontSize(12).fontColor('#AAAAAA').width('100%').margin({ top: 6 })
+                    .fontSize(12).fontColor($r('app.color.text_tertiary')).width('100%').margin({ top: 6 })
                 } else {
                   ForEach(this.outputs, (o: CronOutput, idx: number) => {
                     Column() {
                       Row() {
                         Text(o.name.replace('.md', ''))
                           .fontSize(13)
-                          .fontColor('#1A1A2E')
+                          .fontColor($r('app.color.text_primary'))
                           .layoutWeight(1)
                         Text(this.sizeText(o.size))
                           .fontSize(11)
-                          .fontColor('#AAAAAA')
+                          .fontColor($r('app.color.text_tertiary'))
                         Text(this.expandedName === o.name ? '  ▲' : '  ▼')
                           .fontSize(11)
-                          .fontColor('#5B5BD6')
+                          .fontColor($r('app.color.brand'))
                       }
                       .width('100%')
                       .padding({ top: 9, bottom: 9 })
@@ -556,8 +556,8 @@ struct CronDetailPage {
                       if (this.expandedName === o.name) {
                         if (this.expandedLoading) {
                           Row() {
-                            LoadingProgress().width(16).height(16).color('#5B5BD6')
-                            Text('读取中…').fontSize(11).fontColor('#999999').margin({ left: 8 })
+                            LoadingProgress().width(16).height(16).color($r('app.color.brand'))
+                            Text('读取中…').fontSize(11).fontColor($r('app.color.text_tertiary')).margin({ left: 8 })
                           }
                           .width('100%')
                           .padding({ top: 6, bottom: 10 })
@@ -565,27 +565,27 @@ struct CronDetailPage {
                           Scroll() {
                             Text(this.expandedContent)
                               .fontSize(11)
-                              .fontColor('#444444')
+                              .fontColor($r('app.color.text_secondary'))
                               .lineHeight(17)
                               .width('100%')
                           }
                           .width('100%')
                           .constraintSize({ maxHeight: 320 })
                           .padding(10)
-                          .backgroundColor('#F8F8FC')
+                          .backgroundColor($r('app.color.bg_page'))
                           .borderRadius(8)
                           .margin({ bottom: 10 })
                         }
                       }
                     }
                     .width('100%')
-                    .border({ width: { bottom: 1 }, color: '#EEEEF5' })
+                    .border({ width: { bottom: 1 }, color: $r('app.color.divider') })
                   }, (o: CronOutput) => o.name)
                 }
               }
               .width('100%')
               .padding(16)
-              .backgroundColor('#FFFFFF')
+              .backgroundColor($r('app.color.bg_card'))
               .borderRadius(14)
               .alignItems(HorizontalAlign.Start)
               .margin({ bottom: 24 })
@@ -601,7 +601,7 @@ struct CronDetailPage {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F5F5FA')
+      .backgroundColor($r('app.color.bg_page'))
     }
     .width('100%')
     .height('100%')

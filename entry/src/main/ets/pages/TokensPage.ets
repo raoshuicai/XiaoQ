@@ -94,11 +94,11 @@ struct TokensPage {
   }
 
   @Builder
-  SummaryCard(title: string, mainValue: string, sub1: string, sub2: string, accent: string) {
+  SummaryCard(title: string, mainValue: string, sub1: string, sub2: string, accent: ResourceColor) {
     Column() {
       Text(title)
         .fontSize(13)
-        .fontColor('#888888')
+        .fontColor($r('app.color.text_tertiary'))
         .width('100%')
       Text(mainValue)
         .fontSize(30)
@@ -108,18 +108,18 @@ struct TokensPage {
         .margin({ top: 6 })
       Text(sub1)
         .fontSize(12)
-        .fontColor('#999999')
+        .fontColor($r('app.color.text_tertiary'))
         .width('100%')
         .margin({ top: 6 })
       Text(sub2)
         .fontSize(12)
-        .fontColor('#BBBBBB')
+        .fontColor($r('app.color.text_tertiary'))
         .width('100%')
         .margin({ top: 2 })
     }
     .width('100%')
     .padding(16)
-    .backgroundColor('#FFFFFF')
+    .backgroundColor($r('app.color.bg_card'))
     .borderRadius(14)
     .alignItems(HorizontalAlign.Start)
     .margin({ bottom: 10 })
@@ -133,7 +133,7 @@ struct TokensPage {
           Button() {
             Text('← 返回')
               .fontSize(15)
-              .fontColor('#5B5BD6')
+              .fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -143,14 +143,14 @@ struct TokensPage {
           Text('Token 用量')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#1A1A2E')
+            .fontColor($r('app.color.text_primary'))
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
 
           Button() {
             Text('刷新')
               .fontSize(15)
-              .fontColor('#5B5BD6')
+              .fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -159,12 +159,12 @@ struct TokensPage {
         }
         .width('100%')
         .padding({ left: 8, right: 8, top: 8, bottom: 8 })
-        .backgroundColor('#F8F9FF')
+        .backgroundColor($r('app.color.bg_card'))
 
         if (this.loading) {
           Column() {
-            LoadingProgress().width(40).height(40).color('#5B5BD6')
-            Text('加载中…').fontSize(14).fontColor('#999999').margin({ top: 10 })
+            LoadingProgress().width(40).height(40).color($r('app.color.brand'))
+            Text('加载中…').fontSize(14).fontColor($r('app.color.text_tertiary')).margin({ top: 10 })
           }
           .width('100%')
           .layoutWeight(1)
@@ -172,15 +172,15 @@ struct TokensPage {
         } else if (this.errorMsg.length > 0) {
           Column() {
             Text('⚠️').fontSize(40)
-            Text('加载失败').fontSize(16).fontColor('#1A1A2E').margin({ top: 8 })
-            Text(this.errorMsg).fontSize(13).fontColor('#999999')
+            Text('加载失败').fontSize(16).fontColor($r('app.color.text_primary')).margin({ top: 8 })
+            Text(this.errorMsg).fontSize(13).fontColor($r('app.color.text_tertiary'))
               .margin({ top: 6 })
               .textAlign(TextAlign.Center)
               .padding({ left: 32, right: 32 })
             Button() {
-              Text('重试').fontSize(14).fontColor('#FFFFFF')
+              Text('重试').fontSize(14).fontColor($r('app.color.text_on_brand'))
             }
-            .width(120).height(40).backgroundColor('#5B5BD6').borderRadius(20)
+            .width(120).height(40).backgroundColor($r('app.color.brand')).borderRadius(20)
             .margin({ top: 16 })
             .onClick(() => {
               this.loadAll();
@@ -199,7 +199,7 @@ struct TokensPage {
                 '输入 ' + formatTokens(this.summary.today.inputTokens)
                 + ' · 输出 ' + formatTokens(this.summary.today.outputTokens),
                 '',
-                '#5B5BD6'
+                $r('app.color.brand')
               )
 
               // ── 本月 ──
@@ -210,7 +210,7 @@ struct TokensPage {
                 + this.summary.thisMonth.activeDays + ' 天',
                 '日均 ' + formatTokens(this.summary.thisMonth.dailyAverage)
                 + ' · 按此推算全月约 ' + formatTokens(this.summary.thisMonth.projectedTotal),
-                '#2E9E6B'
+                $r('app.color.success')
               )
 
               // ── 累计 ──
@@ -219,7 +219,7 @@ struct TokensPage {
                 formatTokens(this.summary.allTime.totalTokens) + ' tokens',
                 this.summary.allTime.sessions + ' 个会话',
                 withCommas(this.summary.allTime.totalTokens) + ' tokens',
-                '#C77A20'
+                $r('app.color.warning')
               )
 
               // ── 近 7 天 ──
@@ -227,7 +227,7 @@ struct TokensPage {
                 Text('近 7 天')
                   .fontSize(14)
                   .fontWeight(FontWeight.Medium)
-                  .fontColor('#1A1A2E')
+                  .fontColor($r('app.color.text_primary'))
                   .width('100%')
                   .margin({ bottom: 12 })
 
@@ -238,11 +238,11 @@ struct TokensPage {
                       Column()
                         .width(18)
                         .height(Math.max(4, Math.round(70 * p.totalTokens / this.dailyMax)))
-                        .backgroundColor('#5B5BD6')
+                        .backgroundColor($r('app.color.brand'))
                         .borderRadius(3)
                       Text(shortDate(p.date))
                         .fontSize(10)
-                        .fontColor('#999999')
+                        .fontColor($r('app.color.text_tertiary'))
                         .margin({ top: 6 })
                     }
                     .layoutWeight(1)
@@ -256,7 +256,7 @@ struct TokensPage {
               }
               .width('100%')
               .padding(16)
-              .backgroundColor('#FFFFFF')
+              .backgroundColor($r('app.color.bg_card'))
               .borderRadius(14)
               .margin({ bottom: 10 })
 
@@ -265,7 +265,7 @@ struct TokensPage {
                 Text('按模型')
                   .fontSize(14)
                   .fontWeight(FontWeight.Medium)
-                  .fontColor('#1A1A2E')
+                  .fontColor($r('app.color.text_primary'))
                   .width('100%')
                   .padding({ left: 16, right: 16, top: 14, bottom: 10 })
 
@@ -274,23 +274,23 @@ struct TokensPage {
                     Row() {
                       Text(m.model)
                         .fontSize(14)
-                        .fontColor('#1A1A2E')
+                        .fontColor($r('app.color.text_primary'))
                         .layoutWeight(1)
                       Text(formatTokens(m.totalTokens))
                         .fontSize(14)
                         .fontWeight(FontWeight.Medium)
-                        .fontColor('#5B5BD6')
+                        .fontColor($r('app.color.brand'))
                     }
                     .width('100%')
 
                     Row() {
                       Text(m.sessions + ' 会话')
                         .fontSize(11)
-                        .fontColor('#999999')
+                        .fontColor($r('app.color.text_tertiary'))
                       Blank()
                       Text('入 ' + formatTokens(m.inputTokens) + ' · 出 ' + formatTokens(m.outputTokens))
                         .fontSize(11)
-                        .fontColor('#AAAAAA')
+                        .fontColor($r('app.color.text_tertiary'))
                     }
                     .width('100%')
                     .margin({ top: 4 })
@@ -300,28 +300,28 @@ struct TokensPage {
                       Row()
                         .width(Math.max(2, Math.round(100 * m.totalTokens / this.modelMax)) + '%')
                         .height(4)
-                        .backgroundColor('#5B5BD6')
+                        .backgroundColor($r('app.color.brand'))
                         .borderRadius(2)
                     }
                     .width('100%')
                     .height(4)
-                    .backgroundColor('#EEEEF5')
+                    .backgroundColor($r('app.color.divider'))
                     .borderRadius(2)
                     .margin({ top: 6 })
                   }
                   .width('100%')
                   .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-                  .backgroundColor(idx % 2 === 0 ? '#FFFFFF' : '#F7F8FC')
+                  .backgroundColor(idx % 2 === 0 ? $r('app.color.text_on_brand') : $r('app.color.bg_page'))
                 })
 
                 Text('数据来源：Hermes state.db（按会话开始时间统计）')
                   .fontSize(11)
-                  .fontColor('#BBBBBB')
+                  .fontColor($r('app.color.text_tertiary'))
                   .width('100%')
                   .padding({ left: 16, right: 16, top: 12, bottom: 14 })
               }
               .width('100%')
-              .backgroundColor('#FFFFFF')
+              .backgroundColor($r('app.color.bg_card'))
               .borderRadius(14)
               .clip(true)
               .margin({ bottom: 20 })
@@ -337,7 +337,7 @@ struct TokensPage {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F5F5FA')
+      .backgroundColor($r('app.color.bg_page'))
     }
     .width('100%')
     .height('100%')

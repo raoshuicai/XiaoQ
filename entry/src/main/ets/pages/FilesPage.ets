@@ -134,7 +134,7 @@ struct FilesPage {
           Button() {
             Text('← ' + (this.navStack.length > 1 ? '返回' : '聊天'))
               .fontSize(15)
-              .fontColor('#5B5BD6')
+              .fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -146,7 +146,7 @@ struct FilesPage {
           Text(this.titleText)
             .fontSize(17)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#1A1A2E')
+            .fontColor($r('app.color.text_primary'))
 
           Blank()
 
@@ -157,7 +157,7 @@ struct FilesPage {
         }
         .width('100%')
         .padding({ left: 8, right: 16, top: 8, bottom: 8 })
-        .backgroundColor('#F8F9FF')
+        .backgroundColor($r('app.color.bg_card'))
 
         // 面包屑导航
         if (this.navStack.length > 1) {
@@ -166,7 +166,7 @@ struct FilesPage {
               ForEach(this.navStack, (nav: NavItem, idx: number) => {
                 Text((idx > 0 ? ' / ' : '') + nav.name)
                   .fontSize(12)
-                  .fontColor(idx === this.navStack.length - 1 ? '#5B5BD6' : '#999999')
+                  .fontColor(idx === this.navStack.length - 1 ? $r('app.color.brand') : $r('app.color.text_tertiary'))
                   .onClick(() => {
                     // 点击直接跳转到该层级
                     while (this.navStack.length > idx + 1) {
@@ -180,7 +180,7 @@ struct FilesPage {
           }
           .scrollBar(BarState.Off)
           .height(32)
-          .backgroundColor('#F0F0F5')
+          .backgroundColor($r('app.color.bg_input'))
           .width('100%')
         }
 
@@ -190,10 +190,10 @@ struct FilesPage {
             LoadingProgress()
               .width(40)
               .height(40)
-              .color('#5B5BD6')
+              .color($r('app.color.brand'))
             Text('加载中...')
               .fontSize(14)
-              .fontColor('#999999')
+              .fontColor($r('app.color.text_tertiary'))
               .margin({ top: 12 })
           }
           .width('100%')
@@ -205,7 +205,7 @@ struct FilesPage {
               .fontSize(48)
             Text('这个目录是空的')
               .fontSize(15)
-              .fontColor('#999999')
+              .fontColor($r('app.color.text_tertiary'))
               .margin({ top: 8 })
           }
           .width('100%')
@@ -223,11 +223,11 @@ struct FilesPage {
                   Column() {
                     Text(item.name)
                       .fontSize(15)
-                      .fontColor('#1A1A2E')
+                      .fontColor($r('app.color.text_primary'))
                       .lineHeight(22)
                     Text(item.type === 'directory' ? '文件夹' : '文件')
                       .fontSize(11)
-                      .fontColor('#BBBBBB')
+                      .fontColor($r('app.color.text_tertiary'))
                       .margin({ top: 2 })
                   }
                   .layoutWeight(1)
@@ -235,11 +235,11 @@ struct FilesPage {
 
                   Text(item.type === 'directory' ? '›' : '')
                     .fontSize(20)
-                    .fontColor('#CCCCCC')
+                    .fontColor($r('app.color.divider'))
                 }
                 .width('100%')
                 .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-                .backgroundColor('#FFFFFF')
+                .backgroundColor($r('app.color.bg_card'))
                 .borderRadius(10)
                 .onClick(() => {
                   if (item.type === 'directory') {
@@ -253,13 +253,13 @@ struct FilesPage {
           }
           .width('100%')
           .layoutWeight(1)
-          .backgroundColor('#F5F5FA')
+          .backgroundColor($r('app.color.bg_page'))
           .padding({ top: 8, bottom: 8 })
         }
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F5F5FA')
+      .backgroundColor($r('app.color.bg_page'))
 
       // S7：审批浮层 —— 本页在前台时也能收到审批请求
       ApproveLayer({ pageName: 'files' })

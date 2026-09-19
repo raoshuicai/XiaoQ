@@ -41,7 +41,7 @@ export struct ApproveSheet {
   @State confirmingAlways: boolean = false;
 
   @Builder
-  ChoiceButton(icon: string, label: string, bg: string, fg: string,
+  ChoiceButton(icon: string, label: string, bg: ResourceColor, fg: ResourceColor,
                choice: string, topMargin: number, bottomMargin: number) {
     Button() {
       Row() {
@@ -76,11 +76,11 @@ export struct ApproveSheet {
           Column() {
             Text('授权请求')
               .fontSize(12)
-              .fontColor('#888888')
+              .fontColor($r('app.color.text_tertiary'))
             Text('安全扫描')
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
-              .fontColor('#1A1A2E')
+              .fontColor($r('app.color.text_primary'))
               .lineHeight(24)
           }
           .alignItems(HorizontalAlign.Start)
@@ -96,9 +96,9 @@ export struct ApproveSheet {
             if (this.description.length > 0) {
               Row() {
                 Text('触发原因')
-                  .fontSize(11).fontColor('#999999').width(58)
+                  .fontSize(11).fontColor($r('app.color.text_tertiary')).width(58)
                 Text(this.description)
-                  .fontSize(11).fontColor('#555555').layoutWeight(1)
+                  .fontSize(11).fontColor($r('app.color.text_secondary')).layoutWeight(1)
                   .maxLines(3)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
               }
@@ -108,9 +108,9 @@ export struct ApproveSheet {
             if (this.sessionId.length > 0) {
               Row() {
                 Text('会话')
-                  .fontSize(11).fontColor('#999999').width(58)
+                  .fontSize(11).fontColor($r('app.color.text_tertiary')).width(58)
                 Text(this.sessionId)
-                  .fontSize(11).fontColor('#555555').layoutWeight(1)
+                  .fontSize(11).fontColor($r('app.color.text_secondary')).layoutWeight(1)
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
               }
@@ -119,16 +119,16 @@ export struct ApproveSheet {
             }
             Row() {
               Text('收到时间')
-                .fontSize(11).fontColor('#999999').width(58)
+                .fontSize(11).fontColor($r('app.color.text_tertiary')).width(58)
               Text(clockText(this.receivedAt))
-                .fontSize(11).fontColor('#555555').layoutWeight(1)
+                .fontSize(11).fontColor($r('app.color.text_secondary')).layoutWeight(1)
             }
             .width('100%')
             .margin({ top: 4 })
           }
           .width('100%')
           .padding({ left: 10, right: 10, top: 8, bottom: 8 })
-          .backgroundColor('#F8F8FC')
+          .backgroundColor($r('app.color.bg_page'))
           .borderRadius(8)
           .margin({ bottom: 12 })
         }
@@ -137,14 +137,14 @@ export struct ApproveSheet {
         if (this.command.length > 0) {
           Text('需要执行的命令：')
             .fontSize(13)
-            .fontColor('#888888')
+            .fontColor($r('app.color.text_tertiary'))
             .width('100%')
             .margin({ bottom: 6 })
 
           Scroll() {
             Text(this.command)
               .fontSize(13)
-              .fontColor('#FFFFFF')
+              .fontColor($r('app.color.text_on_brand'))
               .fontFamily('Courier')
               .lineHeight(20)
               .width('100%')
@@ -155,7 +155,7 @@ export struct ApproveSheet {
           .scrollBar(BarState.Auto)
           .align(Alignment.TopStart)
           .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-          .backgroundColor('#1A1A2E')
+          .backgroundColor($r('app.color.text_primary'))
           .borderRadius(8)
           .margin({ bottom: 12 })
         }
@@ -166,9 +166,9 @@ export struct ApproveSheet {
             ForEach(this.patterns, (pattern: string) => {
               Text(pattern)
                 .fontSize(11)
-                .fontColor('#5B5BD6')
+                .fontColor($r('app.color.brand'))
                 .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-                .backgroundColor('#F0F0FF')
+                .backgroundColor($r('app.color.brand_soft'))
                 .borderRadius(10)
                 .margin({ right: 4, bottom: 4 })
             })
@@ -183,31 +183,31 @@ export struct ApproveSheet {
             Text('⚠️ 确认「始终允许」？')
               .fontSize(14)
               .fontWeight(FontWeight.Bold)
-              .fontColor('#C77A20')
+              .fontColor($r('app.color.warning'))
               .width('100%')
             Text('此后同类操作将不再询问，直接执行。这是权限最高的一档，请确认你了解影响。')
               .fontSize(11)
-              .fontColor('#888888')
+              .fontColor($r('app.color.text_tertiary'))
               .lineHeight(17)
               .width('100%')
               .margin({ top: 6 })
 
             Row() {
               Button() {
-                Text('取消').fontSize(13).fontColor('#666666')
+                Text('取消').fontSize(13).fontColor($r('app.color.text_secondary'))
               }
               .layoutWeight(1).height(40)
-              .backgroundColor('#F0F0F5').borderRadius(10)
+              .backgroundColor($r('app.color.bg_input')).borderRadius(10)
               .margin({ right: 6 })
               .onClick(() => {
                 this.confirmingAlways = false;
               })
 
               Button() {
-                Text('确认始终允许').fontSize(13).fontColor('#FFFFFF')
+                Text('确认始终允许').fontSize(13).fontColor($r('app.color.text_on_brand'))
               }
               .layoutWeight(1).height(40)
-              .backgroundColor('#C77A20').borderRadius(10)
+              .backgroundColor($r('app.color.warning')).borderRadius(10)
               .margin({ left: 6 })
               .enabled(!this.inProgress)
               .onClick(() => {
@@ -227,15 +227,15 @@ export struct ApproveSheet {
           // ── 四个操作按钮 ──
           Column() {
             Row() {
-              this.ChoiceButton('▶️', '仅本次放行', '#F0F5FF', '#1A1A2E', 'once', 0, 6)
-              this.ChoiceButton('🔄', '会话放行', '#F0FFF0', '#1A1A2E', 'session', 6, 0)
+              this.ChoiceButton('▶️', '仅本次放行', '#F0F5FF', $r('app.color.text_primary'), 'once', 0, 6)
+              this.ChoiceButton('🔄', '会话放行', '#F0FFF0', $r('app.color.text_primary'), 'session', 6, 0)
             }
             .width('100%')
             .margin({ bottom: 8 })
 
             Row() {
-              this.ChoiceButton('✅', '始终允许', '#4CAF50', '#FFFFFF', 'always', 0, 6)
-              this.ChoiceButton('⛔', '拒绝', '#FF5252', '#FFFFFF', 'deny', 6, 0)
+              this.ChoiceButton('✅', '始终允许', $r('app.color.success'), $r('app.color.text_on_brand'), 'always', 0, 6)
+              this.ChoiceButton('⛔', '拒绝', $r('app.color.danger'), $r('app.color.text_on_brand'), 'deny', 6, 0)
             }
             .width('100%')
           }
@@ -245,19 +245,19 @@ export struct ApproveSheet {
         // 处理中
         if (this.inProgress) {
           Row() {
-            LoadingProgress().width(16).height(16).color('#5B5BD6')
-            Text('处理中...').fontSize(13).fontColor('#999999').margin({ left: 8 })
+            LoadingProgress().width(16).height(16).color($r('app.color.brand'))
+            Text('处理中...').fontSize(13).fontColor($r('app.color.text_tertiary')).margin({ left: 8 })
           }.width('100%').justifyContent(FlexAlign.Center).margin({ top: 12 })
         }
       }
       .width('100%')
       .padding(24)
-      .backgroundColor('#FFFFFF')
+      .backgroundColor($r('app.color.bg_card'))
       .borderRadius({ topLeft: 20, topRight: 20 })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#66000000')
+    .backgroundColor($r('app.color.scrim'))
     .justifyContent(FlexAlign.End)
     .onClick(() => {
       this.onDismiss();

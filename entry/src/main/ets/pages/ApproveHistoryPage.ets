@@ -52,8 +52,8 @@ struct ApproveHistoryPage {
       title: '清空审批历史',
       message: '将删除本地保存的 ' + approveService.getHistory().length + ' 条记录，无法恢复。',
       buttons: [
-        { text: '取消', color: '#666666' },
-        { text: '清空', color: '#FF5252' }
+        { text: '取消', color: $r('app.color.text_secondary') },
+        { text: '清空', color: $r('app.color.danger') }
       ]
     }).then((r) => {
       if (r.index === 1) {
@@ -74,25 +74,25 @@ struct ApproveHistoryPage {
   }
 
   /** choice 对应的配色 */
-  private choiceColor(c: string): string {
+  private choiceColor(c: string): ResourceColor {
     if (c === 'deny') {
-      return '#FF5252';
+      return $r('app.color.danger');
     }
     if (c === 'always') {
-      return '#C77A20';
+      return $r('app.color.warning');
     }
     if (c === 'dismissed') {
-      return '#AAAAAA';
+      return $r('app.color.text_tertiary');
     }
-    return '#5B5BD6';
+    return $r('app.color.brand');
   }
 
   @Builder
   FilterChip(key: string, label: string) {
     Text(label)
       .fontSize(12)
-      .fontColor(this.filterChoice === key ? '#FFFFFF' : '#666666')
-      .backgroundColor(this.filterChoice === key ? '#5B5BD6' : '#F0F0F5')
+      .fontColor(this.filterChoice === key ? $r('app.color.text_on_brand') : $r('app.color.text_secondary'))
+      .backgroundColor(this.filterChoice === key ? $r('app.color.brand') : $r('app.color.bg_input'))
       .borderRadius(14)
       .padding({ left: 12, right: 12, top: 5, bottom: 5 })
       .margin({ right: 8 })
@@ -107,7 +107,7 @@ struct ApproveHistoryPage {
         // 标题栏
         Row() {
           Button() {
-            Text('← 返回').fontSize(15).fontColor('#5B5BD6')
+            Text('← 返回').fontSize(15).fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -117,12 +117,12 @@ struct ApproveHistoryPage {
           Text('审批历史')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#1A1A2E')
+            .fontColor($r('app.color.text_primary'))
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
 
           Button() {
-            Text('清空').fontSize(15).fontColor('#FF5252')
+            Text('清空').fontSize(15).fontColor($r('app.color.danger'))
           }
           .backgroundColor('transparent')
           .enabled(approveService.getHistory().length > 0)
@@ -132,7 +132,7 @@ struct ApproveHistoryPage {
         }
         .width('100%')
         .padding({ left: 8, right: 8, top: 8, bottom: 8 })
-        .backgroundColor('#F8F9FF')
+        .backgroundColor($r('app.color.bg_card'))
 
         // 筛选
         Row() {
@@ -144,7 +144,7 @@ struct ApproveHistoryPage {
         }
         .width('100%')
         .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-        .backgroundColor('#FFFFFF')
+        .backgroundColor($r('app.color.bg_card'))
 
         if (this.items.length === 0) {
           Column() {
@@ -152,9 +152,9 @@ struct ApproveHistoryPage {
             Text(approveService.getHistory().length === 0
               ? '还没有审批记录'
               : '没有该类型的记录')
-              .fontSize(14).fontColor('#999999').margin({ top: 10 })
+              .fontSize(14).fontColor($r('app.color.text_tertiary')).margin({ top: 10 })
             Text('审批卡片处理后会在这里留下记录，最多保留最近 20 条')
-              .fontSize(11).fontColor('#BBBBBB')
+              .fontSize(11).fontColor($r('app.color.text_tertiary'))
               .margin({ top: 8 })
               .textAlign(TextAlign.Center)
               .padding({ left: 40, right: 40 })
@@ -168,21 +168,21 @@ struct ApproveHistoryPage {
                   Row() {
                     Text(choiceLabel(it.choice))
                       .fontSize(12)
-                      .fontColor('#FFFFFF')
+                      .fontColor($r('app.color.text_on_brand'))
                       .backgroundColor(this.choiceColor(it.choice))
                       .borderRadius(8)
                       .padding({ left: 8, right: 8, top: 3, bottom: 3 })
                     Blank()
                     Text(clockText(it.handledAt))
                       .fontSize(11)
-                      .fontColor('#AAAAAA')
+                      .fontColor($r('app.color.text_tertiary'))
                   }
                   .width('100%')
 
                   if (it.description.length > 0) {
                     Text(it.description)
                       .fontSize(12)
-                      .fontColor('#666666')
+                      .fontColor($r('app.color.text_secondary'))
                       .lineHeight(18)
                       .maxLines(2)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -193,14 +193,14 @@ struct ApproveHistoryPage {
                   if (it.command.length > 0) {
                     Text(it.command)
                       .fontSize(11)
-                      .fontColor('#444444')
+                      .fontColor($r('app.color.text_secondary'))
                       .fontFamily('Courier')
                       .lineHeight(17)
                       .maxLines(3)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
                       .width('100%')
                       .padding(8)
-                      .backgroundColor('#F5F5FA')
+                      .backgroundColor($r('app.color.bg_page'))
                       .borderRadius(6)
                       .margin({ top: 8 })
                   }
@@ -208,36 +208,36 @@ struct ApproveHistoryPage {
                   if (it.sessionId.length > 0) {
                     Text('会话 ' + it.sessionId)
                       .fontSize(10)
-                      .fontColor('#BBBBBB')
+                      .fontColor($r('app.color.text_tertiary'))
                       .width('100%')
                       .margin({ top: 6 })
                   }
                 }
                 .width('100%')
                 .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-                .backgroundColor(idx % 2 === 0 ? '#FFFFFF' : '#F7F8FC')
+                .backgroundColor(idx % 2 === 0 ? $r('app.color.text_on_brand') : $r('app.color.bg_page'))
                 .alignItems(HorizontalAlign.Start)
               }
             }, (it: ApproveRequest) => it.runId + '_' + it.handledAt)
           }
           .width('100%')
           .layoutWeight(1)
-          .divider({ strokeWidth: 1, color: '#EEEEF5' })
+          .divider({ strokeWidth: 1, color: $r('app.color.divider') })
           .scrollBar(BarState.Auto)
           .edgeEffect(EdgeEffect.Spring)
         }
 
         Text('共 ' + this.items.length + ' 条 · 本地保存最近 20 条')
           .fontSize(11)
-          .fontColor('#BBBBBB')
+          .fontColor($r('app.color.text_tertiary'))
           .width('100%')
           .textAlign(TextAlign.Center)
           .padding({ top: 8, bottom: 12 })
-          .backgroundColor('#F5F5FA')
+          .backgroundColor($r('app.color.bg_page'))
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F5F5FA')
+      .backgroundColor($r('app.color.bg_page'))
     }
     .width('100%')
     .height('100%')

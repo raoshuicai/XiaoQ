@@ -106,7 +106,7 @@ struct SkillsPage {
         // 标题栏
         Row() {
           Button() {
-            Text('← 返回').fontSize(15).fontColor('#5B5BD6')
+            Text('← 返回').fontSize(15).fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -116,12 +116,12 @@ struct SkillsPage {
           Text(this.tab === 'skills' ? '技能' : '记忆')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#1A1A2E')
+            .fontColor($r('app.color.text_primary'))
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
 
           Button() {
-            Text('刷新').fontSize(15).fontColor('#5B5BD6')
+            Text('刷新').fontSize(15).fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -134,21 +134,21 @@ struct SkillsPage {
         }
         .width('100%')
         .padding({ left: 8, right: 8, top: 8, bottom: 8 })
-        .backgroundColor('#F8F9FF')
+        .backgroundColor($r('app.color.bg_card'))
 
         // 切换
         Row() {
           Text('技能')
             .fontSize(13)
-            .fontColor(this.tab === 'skills' ? '#FFFFFF' : '#666666')
-            .backgroundColor(this.tab === 'skills' ? '#5B5BD6' : '#F0F0F5')
+            .fontColor(this.tab === 'skills' ? $r('app.color.text_on_brand') : $r('app.color.text_secondary'))
+            .backgroundColor(this.tab === 'skills' ? $r('app.color.brand') : $r('app.color.bg_input'))
             .borderRadius(15)
             .padding({ left: 18, right: 18, top: 6, bottom: 6 })
             .onClick(() => { this.switchTab('skills'); })
           Text('记忆')
             .fontSize(13)
-            .fontColor(this.tab === 'memory' ? '#FFFFFF' : '#666666')
-            .backgroundColor(this.tab === 'memory' ? '#5B5BD6' : '#F0F0F5')
+            .fontColor(this.tab === 'memory' ? $r('app.color.text_on_brand') : $r('app.color.text_secondary'))
+            .backgroundColor(this.tab === 'memory' ? $r('app.color.brand') : $r('app.color.bg_input'))
             .borderRadius(15)
             .padding({ left: 18, right: 18, top: 6, bottom: 6 })
             .margin({ left: 10 })
@@ -156,7 +156,7 @@ struct SkillsPage {
         }
         .width('100%')
         .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-        .backgroundColor('#FFFFFF')
+        .backgroundColor($r('app.color.bg_card'))
 
         // 搜索框（只对技能有效）
         if (this.tab === 'skills') {
@@ -164,7 +164,7 @@ struct SkillsPage {
             TextInput({ placeholder: '搜索技能名或描述…', text: this.keyword })
               .layoutWeight(1)
               .height(40)
-              .backgroundColor('#F5F5FA')
+              .backgroundColor($r('app.color.bg_page'))
               .borderRadius(20)
               .padding({ left: 14, right: 14 })
               .fontSize(13)
@@ -175,10 +175,10 @@ struct SkillsPage {
                 this.loadSkills();
               })
             Button() {
-              Text('搜索').fontSize(13).fontColor('#FFFFFF')
+              Text('搜索').fontSize(13).fontColor($r('app.color.text_on_brand'))
             }
             .height(36)
-            .backgroundColor('#5B5BD6')
+            .backgroundColor($r('app.color.brand'))
             .borderRadius(18)
             .padding({ left: 14, right: 14 })
             .margin({ left: 8 })
@@ -188,24 +188,24 @@ struct SkillsPage {
           }
           .width('100%')
           .padding({ left: 16, right: 16, top: 6, bottom: 10 })
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.bg_card'))
         }
 
         if (this.loading) {
           Column() {
-            LoadingProgress().width(40).height(40).color('#5B5BD6')
-            Text('加载中…').fontSize(14).fontColor('#999999').margin({ top: 10 })
+            LoadingProgress().width(40).height(40).color($r('app.color.brand'))
+            Text('加载中…').fontSize(14).fontColor($r('app.color.text_tertiary')).margin({ top: 10 })
           }
           .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else if (this.errorMsg.length > 0) {
           Column() {
             Text('⚠️').fontSize(40)
-            Text(this.errorMsg).fontSize(13).fontColor('#999999')
+            Text(this.errorMsg).fontSize(13).fontColor($r('app.color.text_tertiary'))
               .margin({ top: 8 }).textAlign(TextAlign.Center).padding({ left: 32, right: 32 })
             Button() {
-              Text('重试').fontSize(14).fontColor('#FFFFFF')
+              Text('重试').fontSize(14).fontColor($r('app.color.text_on_brand'))
             }
-            .width(120).height(40).backgroundColor('#5B5BD6').borderRadius(20)
+            .width(120).height(40).backgroundColor($r('app.color.brand')).borderRadius(20)
             .margin({ top: 16 })
             .onClick(() => {
               if (this.tab === 'skills') {
@@ -221,7 +221,7 @@ struct SkillsPage {
             Column() {
               Text('🔍').fontSize(44)
               Text(this.keyword.length > 0 ? '没有匹配「' + this.keyword + '」的技能' : '没有技能')
-                .fontSize(14).fontColor('#999999').margin({ top: 10 })
+                .fontSize(14).fontColor($r('app.color.text_tertiary')).margin({ top: 10 })
             }
             .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
           } else {
@@ -233,14 +233,14 @@ struct SkillsPage {
                       Text(s.name)
                         .fontSize(14)
                         .fontWeight(FontWeight.Medium)
-                        .fontColor('#1A1A2E')
+                        .fontColor($r('app.color.text_primary'))
                         .layoutWeight(1)
                         .maxLines(1)
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
                       Text(s.category)
                         .fontSize(10)
-                        .fontColor('#5B5BD6')
-                        .backgroundColor('#F0F0FF')
+                        .fontColor($r('app.color.brand'))
+                        .backgroundColor($r('app.color.brand_soft'))
                         .borderRadius(5)
                         .padding({ left: 5, right: 5, top: 1, bottom: 1 })
                     }
@@ -249,7 +249,7 @@ struct SkillsPage {
                     if (s.description.length > 0) {
                       Text(s.description)
                         .fontSize(11)
-                        .fontColor('#888888')
+                        .fontColor($r('app.color.text_tertiary'))
                         .lineHeight(16)
                         .maxLines(2)
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -259,7 +259,7 @@ struct SkillsPage {
                   }
                   .width('100%')
                   .padding({ left: 16, right: 16, top: 11, bottom: 11 })
-                  .backgroundColor(idx % 2 === 0 ? '#FFFFFF' : '#F7F8FC')
+                  .backgroundColor(idx % 2 === 0 ? $r('app.color.text_on_brand') : $r('app.color.bg_page'))
                   .alignItems(HorizontalAlign.Start)
                 }
               }, (s: SkillItem) => s.category + '/' + s.name)
@@ -269,7 +269,7 @@ struct SkillsPage {
                 ListItem() {
                   Text('加载更多（已显示 ' + this.shownCount + ' / ' + this.skills.length + '）')
                     .fontSize(12)
-                    .fontColor('#5B5BD6')
+                    .fontColor($r('app.color.brand'))
                     .width('100%')
                     .textAlign(TextAlign.Center)
                     .padding({ top: 14, bottom: 14 })
@@ -296,13 +296,13 @@ struct SkillsPage {
                 ? ('MEMORY.md · ' + this.mem.size + ' 字节')
                 : '记忆文件不存在')
                 .fontSize(11)
-                .fontColor('#AAAAAA')
+                .fontColor($r('app.color.text_tertiary'))
                 .width('100%')
                 .margin({ bottom: 10 })
 
               Text(this.mem.content.length > 0 ? this.mem.content : '（空）')
                 .fontSize(12)
-                .fontColor('#333333')
+                .fontColor($r('app.color.text_secondary'))
                 .lineHeight(19)
                 .width('100%')
             }
@@ -314,7 +314,7 @@ struct SkillsPage {
           .layoutWeight(1)
           .scrollBar(BarState.Auto)
           .edgeEffect(EdgeEffect.Spring)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.bg_card'))
         }
 
         if (!this.loading && this.errorMsg.length === 0) {
@@ -322,16 +322,16 @@ struct SkillsPage {
             ? ('共 ' + this.skills.length + ' 个技能 · 对应 hermes skills list')
             : '只读视图 · 修改记忆请通过对话让 Agent 自己更新')
             .fontSize(11)
-            .fontColor('#BBBBBB')
+            .fontColor($r('app.color.text_tertiary'))
             .width('100%')
             .textAlign(TextAlign.Center)
             .padding({ top: 8, bottom: 12 })
-            .backgroundColor('#F5F5FA')
+            .backgroundColor($r('app.color.bg_page'))
         }
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F5F5FA')
+      .backgroundColor($r('app.color.bg_page'))
     }
     .width('100%')
     .height('100%')

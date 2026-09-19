@@ -50,7 +50,7 @@ export struct StreamingBubble {
             LoadingProgress()
               .width(16)
               .height(16)
-              .color('#5B5BD6')
+              .color($r('app.color.brand'))
           }
           .width('100%')
           .margin({ top: 4 })

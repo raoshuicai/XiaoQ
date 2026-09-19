@@ -198,22 +198,22 @@ struct CronPage {
    *    （实测：过滤明明生效、底部说明也变了，但高亮一直停在初始项）。
    */
   @Builder
-  OverviewRow(key: string, label: string, value: string, color: string) {
+  OverviewRow(key: string, label: string, value: string, color: ResourceColor) {
     Column() {
       Text(value)
         .fontSize(22)
         .fontWeight(FontWeight.Bold)
-        .fontColor(this.filter === key ? '#5B5BD6' : color)
+        .fontColor(this.filter === key ? $r('app.color.brand') : color)
       Text(label)
         .fontSize(11)
-        .fontColor(this.filter === key ? '#5B5BD6' : '#999999')
+        .fontColor(this.filter === key ? $r('app.color.brand') : $r('app.color.text_tertiary'))
         .margin({ top: 2 })
     }
     .layoutWeight(1)
     .alignItems(HorizontalAlign.Center)
     .padding({ top: 8, bottom: 8 })
     // 选中态只靠底色 + 文字变色，不再加 • 前缀
-    .backgroundColor(this.filter === key ? '#F0F0FF' : '#00000000')
+    .backgroundColor(this.filter === key ? $r('app.color.brand_soft') : '#00000000')
     .borderRadius(10)
     .margin({ left: 4, right: 4 })
     .onClick(() => {
@@ -229,7 +229,7 @@ struct CronPage {
           Text(j.name.length > 0 ? j.name : j.id)
             .fontSize(14)
             .fontWeight(FontWeight.Medium)
-            .fontColor(j.enabled ? '#1A1A2E' : '#999999')
+            .fontColor(j.enabled ? $r('app.color.text_primary') : $r('app.color.text_tertiary'))
             .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
@@ -237,13 +237,13 @@ struct CronPage {
           Row() {
             Text(j.schedule)
               .fontSize(11)
-              .fontColor('#5B5BD6')
-              .backgroundColor('#F0F0FF')
+              .fontColor($r('app.color.brand'))
+              .backgroundColor($r('app.color.brand_soft'))
               .borderRadius(6)
               .padding({ left: 6, right: 6, top: 2, bottom: 2 })
             Text('→ ' + shortDateTime(j.nextRunAt))
               .fontSize(11)
-              .fontColor('#AAAAAA')
+              .fontColor($r('app.color.text_tertiary'))
               .margin({ left: 8 })
           }
           .width('100%')
@@ -252,17 +252,17 @@ struct CronPage {
           Row() {
             Text(j.noAgent ? '脚本' : 'Agent')
               .fontSize(10)
-              .fontColor('#888888')
-              .backgroundColor('#F0F0F5')
+              .fontColor($r('app.color.text_tertiary'))
+              .backgroundColor($r('app.color.bg_input'))
               .borderRadius(4)
               .padding({ left: 5, right: 5, top: 1, bottom: 1 })
             Text('投递 ' + j.deliver)
               .fontSize(10)
-              .fontColor('#AAAAAA')
+              .fontColor($r('app.color.text_tertiary'))
               .margin({ left: 6 })
             Text(j.lastRunAt.length > 0 ? ('上次 ' + shortDateTime(j.lastRunAt)) : '未执行过')
               .fontSize(10)
-              .fontColor('#AAAAAA')
+              .fontColor($r('app.color.text_tertiary'))
               .margin({ left: 6 })
           }
           .width('100%')
@@ -273,7 +273,7 @@ struct CronPage {
 
         // 启用开关
         Toggle({ type: ToggleType.Switch, isOn: j.enabled })
-          .selectedColor('#5B5BD6')
+          .selectedColor($r('app.color.brand'))
           .width(44)
           .height(26)
           .enabled(this.busyId.length === 0)
@@ -288,7 +288,7 @@ struct CronPage {
       if (hasError(j)) {
         Text('⚠️ ' + (j.lastError.length > 0 ? j.lastError : ('上次执行失败（' + j.lastStatus + '）')))
           .fontSize(11)
-          .fontColor('#D93025')
+          .fontColor($r('app.color.danger'))
           .width('100%')
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -299,16 +299,16 @@ struct CronPage {
       Row() {
         Text(j.id)
           .fontSize(10)
-          .fontColor('#CCCCCC')
+          .fontColor($r('app.color.divider'))
           .layoutWeight(1)
 
         Button() {
           Text(this.busyId === j.id ? '处理中…' : '立即执行')
             .fontSize(12)
-            .fontColor(j.enabled && this.busyId.length === 0 ? '#5B5BD6' : '#BBBBBB')
+            .fontColor(j.enabled && this.busyId.length === 0 ? $r('app.color.brand') : $r('app.color.text_tertiary'))
         }
         .height(30)
-        .backgroundColor('#F5F5FA')
+        .backgroundColor($r('app.color.bg_page'))
         .borderRadius(15)
         .padding({ left: 12, right: 12 })
         .enabled(j.enabled && this.busyId.length === 0)
@@ -321,7 +321,7 @@ struct CronPage {
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-    .backgroundColor(idx % 2 === 0 ? '#FFFFFF' : '#F7F8FC')
+    .backgroundColor(idx % 2 === 0 ? $r('app.color.text_on_brand') : $r('app.color.bg_page'))
     .onClick(() => {
       // 点整行进详情页（开关与「立即执行」按钮有自己的 onClick，不会冒泡到这里）
       router.pushUrl({ url: 'pages/CronDetailPage', params: { jobId: j.id } })
@@ -337,7 +337,7 @@ struct CronPage {
         // 标题栏
         Row() {
           Button() {
-            Text('← 返回').fontSize(15).fontColor('#5B5BD6')
+            Text('← 返回').fontSize(15).fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -347,12 +347,12 @@ struct CronPage {
           Text('定时任务')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#1A1A2E')
+            .fontColor($r('app.color.text_primary'))
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
 
           Button() {
-            Text('刷新').fontSize(15).fontColor('#5B5BD6')
+            Text('刷新').fontSize(15).fontColor($r('app.color.brand'))
           }
           .backgroundColor('transparent')
           .onClick(() => {
@@ -361,25 +361,25 @@ struct CronPage {
         }
         .width('100%')
         .padding({ left: 8, right: 8, top: 8, bottom: 8 })
-        .backgroundColor('#F8F9FF')
+        .backgroundColor($r('app.color.bg_card'))
 
         if (this.loading) {
           Column() {
-            LoadingProgress().width(40).height(40).color('#5B5BD6')
-            Text('加载中…').fontSize(14).fontColor('#999999').margin({ top: 10 })
+            LoadingProgress().width(40).height(40).color($r('app.color.brand'))
+            Text('加载中…').fontSize(14).fontColor($r('app.color.text_tertiary')).margin({ top: 10 })
           }
           .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else if (this.errorMsg.length > 0) {
           Column() {
             Text('⚠️').fontSize(40)
-            Text('加载失败').fontSize(16).fontColor('#1A1A2E').margin({ top: 8 })
-            Text(this.errorMsg).fontSize(13).fontColor('#999999')
+            Text('加载失败').fontSize(16).fontColor($r('app.color.text_primary')).margin({ top: 8 })
+            Text(this.errorMsg).fontSize(13).fontColor($r('app.color.text_tertiary'))
               .margin({ top: 6 }).textAlign(TextAlign.Center)
               .padding({ left: 32, right: 32 })
             Button() {
-              Text('重试').fontSize(14).fontColor('#FFFFFF')
+              Text('重试').fontSize(14).fontColor($r('app.color.text_on_brand'))
             }
-            .width(120).height(40).backgroundColor('#5B5BD6').borderRadius(20)
+            .width(120).height(40).backgroundColor($r('app.color.brand')).borderRadius(20)
             .margin({ top: 16 })
             .onClick(() => {
               this.load();
@@ -389,15 +389,15 @@ struct CronPage {
         } else {
           // 概览（可点击过滤；选中态在 OverviewRow 内部读 this.filter）
           Row() {
-            this.OverviewRow('all', '总任务', String(this.jobs.length), '#1A1A2E')
-            this.OverviewRow('enabled', '已启用', String(this.enabledCount), '#2E9E6B')
-            this.OverviewRow('paused', '暂停', String(this.pausedCount), '#C77A20')
+            this.OverviewRow('all', '总任务', String(this.jobs.length), $r('app.color.text_primary'))
+            this.OverviewRow('enabled', '已启用', String(this.enabledCount), $r('app.color.success'))
+            this.OverviewRow('paused', '暂停', String(this.pausedCount), $r('app.color.warning'))
             this.OverviewRow('error', '异常', String(this.errorCount),
-              this.errorCount > 0 ? '#D93025' : '#BBBBBB')
+              this.errorCount > 0 ? $r('app.color.danger') : $r('app.color.text_tertiary'))
           }
           .width('100%')
           .padding({ top: 8, bottom: 8, left: 4, right: 4 })
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.bg_card'))
 
           // 列表（用过滤后的 displayJobs）
           if (this.displayJobs.length === 0) {
@@ -405,14 +405,14 @@ struct CronPage {
               Text('📭').fontSize(40)
               Text('没有「' + this.filterLabel() + '」状态的任务')
                 .fontSize(14)
-                .fontColor('#999999')
+                .fontColor($r('app.color.text_tertiary'))
                 .margin({ top: 8 })
               if (this.filter !== 'all') {
                 Button() {
-                  Text('显示全部').fontSize(13).fontColor('#5B5BD6')
+                  Text('显示全部').fontSize(13).fontColor($r('app.color.brand'))
                 }
                 .height(34)
-                .backgroundColor('#F0F0FF')
+                .backgroundColor($r('app.color.brand_soft'))
                 .borderRadius(17)
                 .padding({ left: 16, right: 16 })
                 .margin({ top: 14 })
@@ -434,7 +434,7 @@ struct CronPage {
             }
             .width('100%')
             .layoutWeight(1)
-            .divider({ strokeWidth: 1, color: '#EEEEF5' })
+            .divider({ strokeWidth: 1, color: $r('app.color.divider') })
             .scrollBar(BarState.Auto)
             .edgeEffect(EdgeEffect.Spring)
           }
@@ -444,16 +444,16 @@ struct CronPage {
             : ('已筛选「' + this.filterLabel() + '」：' + this.displayJobs.length + ' 个 / 共 '
                + this.jobs.length + ' 个 · 再点一次该数字取消筛选'))
             .fontSize(11)
-            .fontColor(this.filter === 'all' ? '#BBBBBB' : '#5B5BD6')
+            .fontColor(this.filter === 'all' ? $r('app.color.text_tertiary') : $r('app.color.brand'))
             .width('100%')
             .textAlign(TextAlign.Center)
             .padding({ top: 8, bottom: 12 })
-            .backgroundColor('#F5F5FA')
+            .backgroundColor($r('app.color.bg_page'))
         }
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F5F5FA')
+      .backgroundColor($r('app.color.bg_page'))
     }
     .width('100%')
     .height('100%')
