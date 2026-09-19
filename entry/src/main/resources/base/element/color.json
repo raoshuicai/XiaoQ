@@ -2,7 +2,95 @@
   "color": [
     {
       "name": "start_window_background",
-      "value": "#F8F9FF"
+      "value": "#F7F7F9"
+    },
+    {
+      "name": "brand",
+      "value": "#4F46E5"
+    },
+    {
+      "name": "brand_pressed",
+      "value": "#4338CA"
+    },
+    {
+      "name": "brand_soft",
+      "value": "#EEF2FF"
+    },
+    {
+      "name": "text_primary",
+      "value": "#111827"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#4B5563"
+    },
+    {
+      "name": "text_tertiary",
+      "value": "#9CA3AF"
+    },
+    {
+      "name": "text_on_brand",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "bg_page",
+      "value": "#F7F7F9"
+    },
+    {
+      "name": "bg_card",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "bg_input",
+      "value": "#F0F1F5"
+    },
+    {
+      "name": "bg_hover",
+      "value": "#F3F4F6"
+    },
+    {
+      "name": "divider",
+      "value": "#E5E7EB"
+    },
+    {
+      "name": "border_subtle",
+      "value": "#ECECF2"
+    },
+    {
+      "name": "danger",
+      "value": "#DC2626"
+    },
+    {
+      "name": "danger_soft",
+      "value": "#FEF2F2"
+    },
+    {
+      "name": "warning",
+      "value": "#D97706"
+    },
+    {
+      "name": "success",
+      "value": "#059669"
+    },
+    {
+      "name": "bubble_user_bg",
+      "value": "#4F46E5"
+    },
+    {
+      "name": "bubble_user_text",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "bubble_bot_bg",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "bubble_bot_text",
+      "value": "#111827"
+    },
+    {
+      "name": "scrim",
+      "value": "#66000000"
     }
   ]
 }

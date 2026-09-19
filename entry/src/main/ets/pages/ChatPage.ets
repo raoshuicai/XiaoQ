@@ -35,7 +35,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.10.3';
+const APP_VERSION: string = '2.11.0';
 
 @Entry
 @Component
@@ -734,7 +734,7 @@ struct ChatPage {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F8F9FF')
+      .backgroundColor($r('app.color.bg_card'))
 
       // S7：审批浮层改为全局组件（由 ApproveService 驱动）
       // 只有本页在前台时才渲染，且同一时刻只可能有一张卡片

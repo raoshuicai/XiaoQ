@@ -54,13 +54,13 @@ export struct MessageBubble {
               .margin({ right: 6 })
             Text('小Q')
               .fontSize(12)
-              .fontColor('#5B5BD6')
+              .fontColor($r('app.color.brand'))
               .fontWeight(FontWeight.Medium)
             // S21：时间信息（当天=时:分 / 非当天=月-日 时:分）
             if (fmtMsgTime(this.message.createdAt).length > 0) {
               Text(fmtMsgTime(this.message.createdAt))
                 .fontSize(11)
-                .fontColor('#AAAAAA')
+                .fontColor($r('app.color.text_tertiary'))
                 .margin({ left: 8 })
             }
           }
@@ -74,17 +74,17 @@ export struct MessageBubble {
         //    去掉后由 Column 按内容自适应，配合 maxWidth 限制上限即可。
         Text(this.message.content)
           .fontSize(15)
-          .fontColor(this.message.role === 'user' ? '#FFFFFF' : '#1A1A2E')
+          .fontColor(this.message.role === 'user' ? $r('app.color.bubble_user_text') : $r('app.color.bubble_bot_text'))
           .lineHeight(22)
           .copyOption(CopyOptions.LocalDevice)
       }
       .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-      .backgroundColor(this.message.role === 'user' ? '#5B5BD6' : '#FFFFFF')
+      .backgroundColor(this.message.role === 'user' ? $r('app.color.bubble_user_bg') : $r('app.color.bubble_bot_bg'))
       .borderRadius(16)
-      .shadow({
-        radius: 4,
-        color: this.message.role === 'user' ? 'rgba(91,91,214,0.2)' : 'rgba(0,0,0,0.06)'
-      })
+      // S26：去掉阴影 —— 在浅灰底上阴影显脏；小Q 气泡改用极细描边区分
+      .border(this.message.role === 'assistant'
+        ? { width: 1, color: $r('app.color.border_subtle') }
+        : { width: 0 })
       // S21：小Q 的答复占满整行宽度（用户反馈原来 80% 太窄、正文被挤）；
       //     用户自己的消息保持 80%（气泡短、右对齐，与飞书一致）
       .constraintSize({ maxWidth: this.message.role === 'assistant' ? '100%' : '80%' })

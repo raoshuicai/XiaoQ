@@ -29,7 +29,7 @@ export struct InputBar {
         TextInput({ placeholder: '给小Q发消息...', text: this.text })
           .layoutWeight(1)
           .height(44)
-          .backgroundColor('#F0F0F5')
+          .backgroundColor($r('app.color.bg_input'))
           .borderRadius(22)
           .padding({ left: 16, right: 16 })
           .onChange((value: string) => {
@@ -44,11 +44,11 @@ export struct InputBar {
           if (this.loading) {
             LoadingProgress().width(20).height(20).color('#FFFFFF')
           } else {
-            Text('发送').fontSize(14).fontColor('#FFFFFF')
+            Text('发送').fontSize(14).fontColor($r('app.color.text_on_brand'))
           }
         }
         .width(60).height(40)
-        .backgroundColor(this.loading ? '#9999CC' : '#5B5BD6')
+        .backgroundColor(this.loading ? $r('app.color.brand_pressed') : $r('app.color.brand'))
         .borderRadius(20).margin({ left: 8 })
         .enabled(!this.loading && this.text.trim().length > 0)
         .onClick(() => {
@@ -64,10 +64,10 @@ export struct InputBar {
       Row() {
         Row() {
           Text('🖼️').fontSize(15)
-          Text('图片').fontSize(13).fontColor('#555566').margin({ left: 4 })
+          Text('图片').fontSize(13).fontColor($r('app.color.text_secondary')).margin({ left: 4 })
         }
         .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-        .backgroundColor('#F0F0F5')
+        .backgroundColor($r('app.color.bg_input'))
         .borderRadius(15)
         .margin({ right: 8 })
         .onClick(() => {
@@ -76,10 +76,10 @@ export struct InputBar {
 
         Row() {
           Text('📎').fontSize(15)
-          Text('文件').fontSize(13).fontColor('#555566').margin({ left: 4 })
+          Text('文件').fontSize(13).fontColor($r('app.color.text_secondary')).margin({ left: 4 })
         }
         .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-        .backgroundColor('#F0F0F5')
+        .backgroundColor($r('app.color.bg_input'))
         .borderRadius(15)
         .margin({ right: 8 })
         .onClick(() => {
@@ -93,6 +93,6 @@ export struct InputBar {
     }
     .width('100%')
     .padding({ left: 12, right: 12, bottom: 12, top: 8 })
-    .backgroundColor('#FFFFFF')
+    .backgroundColor($r('app.color.bg_card'))
   }
 }

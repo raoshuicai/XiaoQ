@@ -32,7 +32,7 @@ export struct StreamingBubble {
             .margin({ right: 6 })
           Text('小Q')
             .fontSize(12)
-            .fontColor('#5B5BD6')
+            .fontColor($r('app.color.brand'))
             .fontWeight(FontWeight.Medium)
         }
         .margin({ bottom: 4 })
@@ -40,7 +40,7 @@ export struct StreamingBubble {
         // 流式内容：打字机效果
         Text(this.streamContent)
           .fontSize(15)
-          .fontColor('#1A1A2E')
+          .fontColor($r('app.color.bubble_bot_text'))
           .lineHeight(22)
           .copyOption(CopyOptions.LocalDevice)
 
@@ -57,7 +57,7 @@ export struct StreamingBubble {
         }
       }
       .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-      .backgroundColor('#FFFFFF')
+      .backgroundColor($r('app.color.bubble_bot_bg'))
       .borderRadius(16)
       .shadow({ radius: 4, color: 'rgba(0,0,0,0.06)' })
       .constraintSize({ maxWidth: '80%' })
