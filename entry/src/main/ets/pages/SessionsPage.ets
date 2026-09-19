@@ -38,6 +38,81 @@ struct SessionsPage {
   @StorageLink('apiKey') apiKey: string = '';
   @StorageLink('activeSessionId') activeSessionId: string = '';
 
+  /**
+   * S14：长按弹层。
+   *
+   * ⚠️ 自绘而不用 ActionSheet / AlertDialog / @CustomDialog —— 这三者的对象字面量
+   *    参数会被 ArkTS 编译器拒绝（10605038 未类型化对象字面量 / 10605093 字面量内用 this）。
+   * ⚠️ 用一个字符串状态而不是三个布尔 —— 三者互斥，单状态天然不会同时展开两层。
+   *    layer: '' = 无 / 'menu' = 操作菜单 / 'rename' = 改名 / 'delete' = 删除确认
+   */
+  @State layer: string = '';
+  @State renameText: string = '';
+  private menuTarget: SessionItem | null = null;
+
+  private targetTitle(): string {
+    return this.menuTarget !== null ? this.menuTarget.displayTitle() : '';
+  }
+
+  private showMenu(s: SessionItem): void {
+    this.menuTarget = s;
+    this.layer = 'menu';
+  }
+
+  private openRename(s: SessionItem): void {
+    this.menuTarget = s;
+    this.renameText = s.displayTitle();
+    this.layer = 'rename';
+  }
+
+  private openDelete(s: SessionItem): void {
+    this.menuTarget = s;
+    this.layer = 'delete';
+  }
+
+  private closeLayer(): void {
+    this.layer = '';
+  }
+
+  /** 保存新名字（S14）*/
+  private async doRename(title: string): Promise<void> {
+    const s: SessionItem | null = this.menuTarget;
+    const t: string = title.trim();
+    if (s === null || t.length === 0) {
+      this.closeLayer();
+      return;
+    }
+    const ok: boolean = await sessionService.rename(s.id, t);
+    this.closeLayer();
+    if (ok) {
+      s.title = t;
+      this.items = this.items.slice();   // 换数组引用触发刷新
+      promptAction.showToast({ message: '已重命名' });
+    } else {
+      promptAction.showToast({ message: '重命名失败，请重试' });
+    }
+  }
+
+  /** 删除会话（S14，服务端软删除）*/
+  private async doDelete(s: SessionItem): Promise<void> {
+    const ok: boolean = await sessionService.remove(s.id);
+    this.closeLayer();
+    if (!ok) {
+      promptAction.showToast({ message: '删除失败，请重试' });
+      return;
+    }
+    this.items = this.items.filter((it: SessionItem) => it.id !== s.id);
+    if (this.total > 0) {
+      this.total = this.total - 1;
+    }
+    promptAction.showToast({ message: '已删除' });
+    // 删的正好是当前会话 → 切回默认会话，避免停留在一个已隐藏的会话上
+    if (this.activeSessionId === s.id) {
+      AppStorage.setOrCreate(ACTIVE_SESSION_KEY, '');
+    }
+  }
+
+
   aboutToAppear(): void {
     this.load(true);
   }
@@ -229,6 +304,18 @@ struct SessionsPage {
                   }
                   .layoutWeight(1)
                   .alignItems(HorizontalAlign.Start)
+
+                  // S14：显式菜单入口。
+                  // ⚠️ 长按也能弹（LongPressGesture），但手势既不好发现、自动化也测不到
+                  //    （uitest longClick 打不中），所以必须给一个看得见的按钮。
+                  Text('⋯')
+                    .fontSize(22)
+                    .fontColor('#999999')
+                    .width(44)
+                    .textAlign(TextAlign.Center)
+                    .onClick(() => {
+                      this.showMenu(s);
+                    })
                 }
                 .width('100%')
                 .padding({ left: 16, right: 16, top: 12, bottom: 12 })
@@ -236,6 +323,12 @@ struct SessionsPage {
                 .onClick(() => {
                   this.pick(s);
                 })
+                .gesture(
+                  LongPressGesture()
+                    .onAction(() => {
+                      this.showMenu(s);
+                    })
+                )
               }
             }, (s: SessionItem) => s.id)
 
@@ -275,6 +368,84 @@ struct SessionsPage {
       .width('100%')
       .height('100%')
       .backgroundColor('#F5F5FA')
+
+      // ─── S14：自绘浮层（单状态驱动，不用系统弹窗 API）───
+      if (this.layer.length > 0) {
+        Column() {
+          Column() {
+            Text(this.targetTitle())
+              .fontSize(13)
+              .fontColor('#888888')
+              .maxLines(1)
+              .margin({ bottom: 12 })
+
+            if (this.layer === 'menu') {
+              Button('重命名')
+                .width('100%')
+                .height(46)
+                .backgroundColor('#F0F1F5')
+                .fontColor('#1A1A2E')
+                .onClick(() => {
+                  if (this.menuTarget !== null) { this.openRename(this.menuTarget); }
+                })
+              Button('删除会话')
+                .width('100%')
+                .height(46)
+                .margin({ top: 8 })
+                .backgroundColor('#FDECEC')
+                .fontColor('#E5484D')
+                .onClick(() => {
+                  if (this.menuTarget !== null) { this.openDelete(this.menuTarget); }
+                })
+            }
+
+            if (this.layer === 'rename') {
+              TextInput({ text: this.renameText, placeholder: '输入新名字' })
+                .fontSize(15)
+                .maxLength(60)
+                .onChange((v: string) => { this.renameText = v; })
+              Button('保存')
+                .width('100%')
+                .height(44)
+                .margin({ top: 12 })
+                .backgroundColor('#5B5BD6')
+                .fontColor('#FFFFFF')
+                .onClick(() => { this.doRename(this.renameText); })
+            }
+
+            if (this.layer === 'delete') {
+              Text('将从列表中移除。服务端只标记隐藏，聊天记录不会真删，可恢复。')
+                .fontSize(13)
+                .fontColor('#666666')
+                .margin({ bottom: 14 })
+              Button('确认删除')
+                .width('100%')
+                .height(44)
+                .backgroundColor('#E5484D')
+                .fontColor('#FFFFFF')
+                .onClick(() => {
+                  if (this.menuTarget !== null) { this.doDelete(this.menuTarget); }
+                })
+            }
+
+            Button('取消')
+              .width('100%')
+              .height(44)
+              .margin({ top: 8 })
+              .backgroundColor('#F0F1F5')
+              .fontColor('#555555')
+              .onClick(() => { this.closeLayer(); })
+          }
+          .width('80%')
+          .padding(16)
+          .backgroundColor('#FFFFFF')
+          .borderRadius(14)
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor('#66000000')
+      }
     }
     .width('100%')
     .height('100%')

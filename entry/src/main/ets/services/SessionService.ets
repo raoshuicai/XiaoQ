@@ -14,6 +14,15 @@
 import { rest } from '../core/HermesRest.ets';
 import { SessionItem, SessionMessage, SessionPage, MessagePage } from '../models/SessionModels.ets';
 
+/** 改名请求体（ArkTS 禁对象字面量，必须显式类型） */
+class RenameBody {
+  title: string;
+
+  constructor(title: string) {
+    this.title = title;
+  }
+}
+
 export class SessionService {
   /** 会话题列表（按 updated_at 倒序）*/
   public async fetchSessions(limit: number, offset: number): Promise<SessionPage> {
@@ -45,6 +54,41 @@ export class SessionService {
    * 某会话的消息。
    * offset 语义 = 从最新往历史翻的窗口偏移；返回始终是时间正序。
    */
+  /**
+   * 重命名会话（S14）。
+   * 服务端写 Hermes 的 sessions.title。
+   */
+  public async rename(sessionId: string, title: string): Promise<boolean> {
+    const t = title.trim();
+    if (t.length === 0 || sessionId.length === 0) {
+      return false;
+    }
+    try {
+      await rest.patchOnce('/api/sessions/' + encodeURIComponent(sessionId),
+        new RenameBody(t));
+      return true;
+    } catch (e) {
+      console.info('rename failed: ' + (e as Error).message);
+      return false;
+    }
+  }
+
+  /**
+   * 删除会话（S14）—— 服务端只做软删除（archived=1），Hermes 数据不动，可逆。
+   */
+  public async remove(sessionId: string): Promise<boolean> {
+    if (sessionId.length === 0) {
+      return false;
+    }
+    try {
+      await rest.deleteOnce('/api/sessions/' + encodeURIComponent(sessionId));
+      return true;
+    } catch (e) {
+      console.info('delete session failed: ' + (e as Error).message);
+      return false;
+    }
+  }
+
   public async fetchMessages(sessionId: string, limit: number, offset: number): Promise<MessagePage> {
     const q: Record<string, string> = {
       'limit': String(limit),

@@ -108,6 +108,24 @@ export class HermesRest {
     return this.unwrap(response);
   }
 
+  /** PATCH JSON（一次，不重试）—— S14 会话改名用 */
+  public async patchOnce(path: string, body: Object): Promise<Object> {
+    const url: string = this.buildUrl(path);
+    const headers: Record<string, string> = this.authHeaders(true);
+    const request: rcp.Request = new rcp.Request(url, 'PATCH', headers, body);
+    const response: rcp.Response = await this.ensureSession().fetch(request);
+    return this.unwrap(response);
+  }
+
+  /** DELETE（一次，不重试）—— S14 会话删除用 */
+  public async deleteOnce(path: string): Promise<Object> {
+    const url: string = this.buildUrl(path);
+    const headers: Record<string, string> = this.authHeaders(false);
+    const request: rcp.Request = new rcp.Request(url, 'DELETE', headers, {});
+    const response: rcp.Response = await this.ensureSession().fetch(request);
+    return this.unwrap(response);
+  }
+
   public destroy(): void {
     this.closePendingNow();
     if (this.session !== null) {
