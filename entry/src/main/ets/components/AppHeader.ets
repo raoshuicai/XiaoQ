@@ -34,11 +34,11 @@ export struct AppHeader {
     Button() {
       Text(icon).fontSize(20)
     }
-    .width(44)
-    .height(44)
+    .width(42)
+    .height(42)
     .backgroundColor('#F0F0FF')
-    .borderRadius(22)
-    .margin({ right: 8 })
+    .borderRadius(21)
+    .margin({ right: 6 })
     .onClick(() => {
       handler();
     })
@@ -47,16 +47,20 @@ export struct AppHeader {
   build() {
     Row() {
       Text('小Q')
-        .fontSize(20)
+        .fontSize(19)
         .fontWeight(FontWeight.Bold)
         .fontColor('#1A1A2E')
-        .padding({ left: 4, right: 8, top: 4, bottom: 4 })
+        .padding({ left: 2, right: 6, top: 4, bottom: 4 })
         .onClick(() => {
-          // S12：点标题打开会话列表（顶部按钮位已满，标题是最自然的位置）
+          // 标题也可点（保留这个入口，但不再依赖它 —— 顶部有显式的 💬 按钮）
           this.onSessions();
         })
       Blank()
 
+      // S12 修正：会话入口做成显式按钮。
+      // 原先只挂"点标题"，没有任何视觉提示 —— 用户根本不知道那里能点。
+      // 💬 放在最前面：切会话是最高频的操作。
+      this.IconButton('💬', (): void => { this.onSessions(); })
       this.IconButton('📊', (): void => { this.onTokens(); })
       this.IconButton('📁', (): void => { this.onFiles(); })
 
