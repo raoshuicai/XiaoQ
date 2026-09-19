@@ -1,20 +1,27 @@
 /**
  * InputBar —— 底部输入区
  *
- * 版本演进：
- *   S6  从 ChatPage 的 build() 内联布局抽出
- *   S21 加菜单栏（语音/图片/文件）
- *   S22 移除语音（手机键盘自带）
- *   S29 改两行结构
- *   S30 按钮移入输入框内部（想解决键盘遮挡，但没用）
- *   S31 **最终形态**（用户指定）：
- *        - 未输入时输入框只占**一行**（minHeight 44）
- *        - 「＋」和「↑」在输入框**下面一行**
- *        - 键盘避让改为 OFFSET（在 EntryAbility 里设置，见那边的注释）
+ * S32 **最终形态**（用户明确指定）：
+ *   整体是一个 2 行高的容器：
+ *     ┌────────────────────────────┐
+ *     │  输入文本（可自动长高）        │  ← 第 1 行
+ *     │  ＋                    ↑    │  ← 第 2 行：左 ＋ / 右 ↑，都是小圆气泡
+ *     └────────────────────────────┘
  *
- * ⚠️ 键盘遮挡的真正解法不在这个文件的布局，而在 EntryAbility 的
- *    `setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET)` —— 默认的 RESIZE 会压缩布局，
- *    把底部输入栏挤到键盘下方。布局怎么摆都救不了，得先让页面整体上移。
+ *   输入区要能**随内容自动缩放**：输入 2 行就是 2 行高，输入 10 行就是 10 行高。
+ *
+ * 键盘遮挡（用户反复反馈，重点）：
+ *   - EntryAbility 里已设 setKeyboardAvoidMode(OFFSET)（整页上移）
+ *   - 布局上让输入栏**贴底**，避让时系统会把整页上移
+ *   - ⚠️ 模拟器键盘是全屏的（实测 y=137..2856 覆盖整屏），真机是半屏，
+ *     所以"避让是否生效"只能在真机确认，模拟器测不出来
+ *
+ * ⚠️ TextArea 高度踩坑记录（实测）：
+ *   constraintSize({minHeight: 44})  -> 154px
+ *   constraintSize({minHeight: 24})  -> 136px
+ *   显式 .height(44)                 -> 154px
+ *   去上下 padding + .height(44)     -> 154px
+ *   → TextArea 有框架内定的最小高度，压不到"一行"。本版改用外层容器控 padding 再试。
  */
 
 import { FontSize, Radius, Space, Size } from '../core/Theme.ets';
@@ -29,14 +36,15 @@ export struct InputBar {
 
   /** 「＋」菜单是否展开 */
   @State plusOpen: boolean = false;
+  /** 输入区当前高度（px），由 onAreaChange 回流，用于给外层容器定高 */
+  @State inputH: number = 0;
 
-  /** 菜单项 */
   @Builder
   PlusItem(icon: string, label: string, handler: () => void) {
     Row() {
       Text(icon).fontSize(18).width(28)
       Text(label)
-        .fontSize(15)
+        .fontSize(FontSize.LABEL)
         .fontColor($r('app.color.text_primary'))
         .layoutWeight(1)
     }
@@ -50,20 +58,16 @@ export struct InputBar {
 
   build() {
     Stack() {
-      // ─────────── 输入栏本体（两行）───────────
+      // ─────────── 输入栏本体：2 行容器 ───────────
       Column() {
-        // ① 输入框：未输入时只有一行高
-        TextInput({ placeholder: '给小Q发消息...', text: this.text })
+        // 【第 1 行】输入区：随内容自动长高（1~8 行）
+        //   padding 交给外层容器，这里不设——避免 padding 叠加把最小高度顶上去
+        TextArea({ placeholder: '给小Q发消息...', text: this.text })
           .width('100%')
-          // ⚠️ 用 TextInput 而不是 TextArea：TextArea 在 HarmonyOS 上有**硬编码的
-          //    "最小 3 行"高度**，constraintSize.minHeight(24/44) 和显式 .height(44)
-          //    都压不下来（实测始终 136~154px）。要真正一行，只能换 TextInput。
-          //    代价：不支持多行输入（用户明确要求未输入时只占一行，优先满足这个）。
-          .height(44)
-          .backgroundColor($r('app.color.bg_input'))
-          .borderRadius(Radius.CARD)
-          // 只留左右 padding：上下 padding 会叠加到 height 上，导致实际高度远超 44
-          .padding({ left: 14, right: 14 })
+          // maxHeight 300 ≈ 10 行字号 15 的文本，满足"输入 10 行就是 10 行高"
+          .constraintSize({ minHeight: 24, maxHeight: 300 })
+          .backgroundColor(Color.Transparent)
+          .borderRadius(0)
           .fontSize(FontSize.LABEL)
           .fontColor($r('app.color.text_primary'))
           .placeholderColor($r('app.color.text_tertiary'))
@@ -71,14 +75,13 @@ export struct InputBar {
           .onChange((value: string) => {
             this.text = value;
           })
-          .onSubmit(() => {
-            if (this.canSend()) {
-              this.onSend();
-            }
+          .onAreaChange((_o: Area, n: Area) => {
+            this.inputH = Number(n.height);
           })
 
-        // ② 按钮行：输入框下面一行
+        // 【第 2 行】按钮行：左 ＋ / 右 ↑，都是 32×32 小圆气泡
         Row() {
+          // ＋ 气泡：浅色圆钮
           Text('＋')
             .fontSize(20)
             .fontColor($r('app.color.text_secondary'))
@@ -93,7 +96,7 @@ export struct InputBar {
 
           Blank()
 
-          // ↑ 小圆圈气泡：有内容=主色实心白箭头；空=浅灰
+          // ↑ 气泡：有内容=主色实心圆 + 白箭头；空=浅灰
           Text('↑')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
@@ -110,10 +113,11 @@ export struct InputBar {
             })
         }
         .width('100%')
-        .margin({ top: 6 })
+        .height(36)
       }
       .width('100%')
-      .padding({ left: 12, right: 12, bottom: 10, top: 6 })
+      // 外层容器统一给 padding（内层 TextArea 不再设，避免叠加）
+      .padding({ left: 12, right: 12, top: 8, bottom: 8 })
       .backgroundColor($r('app.color.bg_card'))
 
       // ─────────── 「＋」菜单（自绘浮层，向上弹出）───────────
@@ -129,7 +133,7 @@ export struct InputBar {
           .backgroundColor($r('app.color.bg_card'))
           .borderRadius(Radius.CARD)
           .padding({ top: 6, bottom: 6 })
-          .margin({ left: 12, bottom: 130 })
+          .margin({ left: 12, bottom: 96 })
           .alignItems(HorizontalAlign.Start)
         }
         .width('100%')

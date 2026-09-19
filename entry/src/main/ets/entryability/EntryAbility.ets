@@ -1,5 +1,6 @@
 import { UIAbility } from '@kit.AbilityKit';
 import { window, KeyboardAvoidMode } from '@kit.ArkUI';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { pushService } from '@kit.PushKit';
 import { rcp } from '@kit.RemoteCommunicationKit';
 import { preferences } from '@kit.ArkData';
@@ -88,22 +89,36 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
-    // S31：主动把键盘避让设成 OFFSET（页面上移）。
-    // ⚠️ 默认值在不同 API 版本上可能是 RESIZE（压缩布局），那样输入栏会被
-    //    压到键盘下方 —— 用户反馈"输入时键盘挡住输入框"就是这个原因。
-    //    OFFSET 是"整个页面上移"，输入栏始终在键盘上方可见。
-    try {
-      const win = windowStage.getMainWindowSync();
-      win.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET);
-      console.info('keyboard avoid mode = OFFSET');
-    } catch (e) {
-      console.error('setKeyboardAvoidMode failed: ' + JSON.stringify(e));
-    }
-
+    // S32：键盘遮挡的**真正根因与修复**。
+    //
+    // 之前把 setKeyboardAvoidMode 写在 onWindowStageCreate 开头、用
+    // getMainWindowSync() 拿窗口 —— 实测抛 {"code":1300002}
+    // ("This window state is abnormal")，也就是**那一刻窗口还没就绪**，
+    // 设置从未生效。布局怎么改都救不了。
+    //
+    // 正解：等 loadContent 完成（窗口已就绪）后，用**异步** getMainWindow()
+    // 拿窗口再设置。同时注册键盘高度监听作为兜底观测。
     windowStage.loadContent('pages/ChatPage', (err) => {
       if (err.code) {
-        console.error('load page failed');
+        hilog.error(0x0000, 'XIAOQ-KB', 'load page failed');
+        return;
       }
+      windowStage.getMainWindow().then((win: window.Window) => {
+        try {
+          // ① 键盘避让：OFFSET = 整页上移（RESIZE 会压缩布局，把输入栏压到键盘下方）
+          win.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET);
+          hilog.error(0x0000, 'XIAOQ-KB', 'avoid mode OFFSET ok');
+          // ② 键盘高度监听（兜底 + 便于真机诊断）
+          win.on('keyboardHeightChange', (height: number) => {
+            hilog.error(0x0000, 'XIAOQ-KB', 'kbHeight=' + height);
+            AppStorage.setOrCreate('kbHeight', height);
+          });
+        } catch (e) {
+          hilog.error(0x0000, 'XIAOQ-KB', 'kb setup failed: ' + JSON.stringify(e));
+        }
+      }).catch((e: Error) => {
+        hilog.error(0x0000, 'XIAOQ-KB', 'getMainWindow failed: ' + e.message);
+      });
     });
   }
 }
