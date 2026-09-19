@@ -20,6 +20,18 @@ import { Clock, NO_TIMER } from './Timers.ets';
 
 // ── 时间常量：数值长期调优得出，搬迁时一字不改 ──
 const STALL_TIMEOUT: number = 20000;      // 流式停滞 20s → 主动请求续流
+/**
+ * 新会话首条消息的停滞窗口。
+ *
+ * ⚠️ 为什么要单独给一个更长的值（实测数据）：
+ *   新 session 的 prompt cache 是冷的。system prompt 52KB、首轮输入约 2.7 万 token，
+ *   实测首个 token 要 **45-60 秒**才到（对比老会话命中上千万 cache token，秒级返回）。
+ *   用默认 20s 会在 token 到达前就触发 sync_pending，界面上表现为「一直恢复中」甚至
+ *   被当成发送失败。这不是网络问题，是首次冷启动的固有成本。
+ */
+const NEW_SESSION_STALL_TIMEOUT: number = 90000;
+export const STALL_TIMEOUT_DEFAULT: number = STALL_TIMEOUT;
+export const STALL_TIMEOUT_NEW_SESSION: number = NEW_SESSION_STALL_TIMEOUT;
 const SYNC_RETRY_INTERVAL: number = 5000; // sync_pending 重试间隔
 const SYNC_RETRY_MAX: number = 12;        // 重试上限（12 × 5s = 60s）
 const RESUME_TIMEOUT: number = 30000;     // 续流恢复后等 chat_done 的兜底
@@ -92,19 +104,26 @@ export class ChatStreamEngine {
 
   // ──────────────────────────── 页面调用 ────────────────────────────
 
-  /** 用户发出新消息前调用：重置累积内容并启动停滞计时器 */
-  public begin(): void {
+  /**
+   * 用户发出新消息前调用：重置累积内容并启动停滞计时器。
+   *
+   * @param stallTimeoutMs 停滞判定窗口，默认 20s。
+   *   新会话的首条消息**必须传更大的值**（见 STALL_TIMEOUT_NEW_SESSION 的注释）：
+   *   新 session 冷缓存，首个 token 实测要 45-60 秒。
+   */
+  public begin(stallTimeoutMs: number = STALL_TIMEOUT): void {
     this.isStreaming = true;
     this.streamContent = '';
     this.clearStallTimer();
-    // Batch 3：流式回复停顿时长超过 20 秒无 token 则主动请求 sync_pending
+    // 流式回复停顿时长超过窗口仍无 token 则主动请求 sync_pending
     this.stallTimer = this.clock.setTimeout((): void => {
       this.stallTimer = NO_TIMER;
       if (this.isStreaming) {
-        console.info('streamStallTimer: no tokens for 20s, requesting sync_pending');
+        console.info('streamStallTimer: no tokens for ' + (stallTimeoutMs / 1000)
+          + 's, requesting sync_pending');
         this.cb.onSyncNeeded(this.sessionId, this.lastSeq);
       }
-    }, STALL_TIMEOUT);
+    }, stallTimeoutMs);
     this.cb.onStreamStart();
   }
 

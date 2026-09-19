@@ -9,7 +9,7 @@ import { wsService } from '../services/WsService.ets';
 // S4：消息持有与持久化下沉到 ChatService
 import { chatService } from '../services/ChatService.ets';
 // S3：流式状态机下沉到 core/
-import { ChatStreamEngine, StreamCallbacks } from '../core/ChatStreamEngine.ets';
+import { ChatStreamEngine, StreamCallbacks, STALL_TIMEOUT_NEW_SESSION } from '../core/ChatStreamEngine.ets';
 import { systemClock } from '../core/Timers.ets';
 // S1：所有共享类型统一从 models 层引入（HermesApi/PreferencesHelper/WebSocketClient 不再自行定义）
 import { ChatMessage, ChatRecord } from '../models/ChatModels.ets';
@@ -33,7 +33,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.7.2';
+const APP_VERSION: string = '2.7.3';
 
 @Entry
 @Component
@@ -439,8 +439,15 @@ struct ChatPage {
     this.inputText = '';
     this.isLoading = true;
     // S3：isStreaming / streamContent / 停滞计时器 全部交给状态机
-    // （原 streamStallTimer 的 20s 兜底逻辑已移入 ChatStreamEngine.begin）
-    this.engine?.begin();
+    // S12 修：**新会话（activeSessionId 为空）首条消息要用更长的停滞窗口** ——
+    //   新 session 的 prompt cache 是冷的（system prompt 52KB / 首轮输入约 2.7 万 token），
+    //   实测首个 token 要 45-60 秒。沿用 20s 会在 token 到达前就触发续流，
+    //   界面上表现为「一直恢复中」或直接被当成发送失败。
+    const isNewSession: boolean = this.activeSessionId.length === 0;
+    this.engine?.begin(isNewSession ? STALL_TIMEOUT_NEW_SESSION : undefined);
+    if (isNewSession) {
+      this.showToast('新会话首次响应需要 30-60 秒（模型要重新预热），请稍等…');
+    }
 
     // 通过WebSocket发送流式聊天请求
     // S12：session_id 用「当前会话」而非 deviceId（空 = 让服务端新建）
