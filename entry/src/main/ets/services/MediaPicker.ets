@@ -196,19 +196,42 @@ export class MediaPicker {
       hilog.error(0x0001, TAG, 'uploading name=%{public}s uri=%{public}s to %{public}s', item.name, sandboxUri, cfg.url);
 
       const task: request.UploadTask = await request.uploadFile(ctx, cfg);
+
+      // ⚠️ 不要用 TaskState.responseCode 判断成败：真机实测服务端明明返回 200、
+      //    文件也收全了(1.17MB)，它给的值却是 0。官方语义是：
+      //      complete 事件触发 = 上传任务完成；fail 事件 = 失败。
+      //    所以以**事件类型**为准，responseCode 只打日志当参考。
+      // 另外 headerReceive 里能拿到真实响应头，用它兜底记录 HTTP 状态码。
+      let httpHint: number = -1;
       const code: number = await new Promise<number>((resolve) => {
+        task.on('headerReceive', (header: object) => {
+          try {
+            const h: Record<string, string> = header as Record<string, string>;
+            const raw: string | undefined = h['responseCode'];
+            if (raw !== undefined) {
+              httpHint = Number(raw);
+            }
+          } catch (x) {
+            // header 结构不确定，忽略
+          }
+          hilog.error(0x0001, TAG, '[HDR] responseCode hint=%{public}d', httpHint);
+        });
         task.on('complete', (states: Array<request.TaskState>) => {
           const st: request.TaskState | undefined = states.length > 0 ? states[0] : undefined;
-          resolve(st !== undefined && st.responseCode !== undefined ? st.responseCode : -1);
+          const rc: number = st !== undefined && st.responseCode !== undefined ? st.responseCode : -1;
+          hilog.error(0x0001, TAG, '[DONE] complete event, rc=%{public}d hint=%{public}d', rc, httpHint);
+          resolve(200);                    // ★ complete 即成功
         });
         task.on('fail', (states: Array<request.TaskState>) => {
-          hilog.error(0x0001, TAG, 'upload FAILED');
+          const st: request.TaskState | undefined = states.length > 0 ? states[0] : undefined;
+          const rc: number = st !== undefined && st.responseCode !== undefined ? st.responseCode : -1;
+          hilog.error(0x0001, TAG, 'upload FAILED rc=%{public}d', rc);
           resolve(-1);
         });
       });
 
-      if (code !== 200) {
-        hilog.error(0x0001, TAG, 'upload responseCode=%{public}d', code);
+      if (code === -1) {
+        hilog.error(0x0001, TAG, 'upload failed (fail event)');
         return '';
       }
       hilog.error(0x0001, TAG, 'upload OK %{public}s', item.name);
