@@ -65,15 +65,18 @@ export struct MessageBubble {
             }
           }
           .margin({ bottom: 4 })
-          .width('100%')
         }
 
+        // ⚠️ 这里**不要**写 .width('100%')：
+        //    外层 Column 用的是 maxWidth 约束，Text 再声明 100% 会形成
+        //    "Column 宽度取决于 Text、Text 宽度又取决于 Column" 的循环依赖，
+        //    ArkUI 算错后文字会溢出气泡右边界 —— 用户看到的就是"最右边一列字被挡"。
+        //    去掉后由 Column 按内容自适应，配合 maxWidth 限制上限即可。
         Text(this.message.content)
           .fontSize(15)
           .fontColor(this.message.role === 'user' ? '#FFFFFF' : '#1A1A2E')
           .lineHeight(22)
           .copyOption(CopyOptions.LocalDevice)
-          .width('100%')
       }
       .padding({ left: 14, right: 14, top: 10, bottom: 10 })
       .backgroundColor(this.message.role === 'user' ? '#5B5BD6' : '#FFFFFF')
