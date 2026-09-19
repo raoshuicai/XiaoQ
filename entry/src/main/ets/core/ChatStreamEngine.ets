@@ -245,6 +245,21 @@ export class ChatStreamEngine {
     }
   }
 
+  /**
+   * 外部告知：消息列表里残留着「恢复中」占位符（APP 重启/被杀后遗留）。
+   *
+   * ⚠️ 为什么需要这个入口：`pendingIndicator` 是内存态，重启就丢了，
+   *    而占位符是持久化在消息列表里的 —— 只靠内存标志无法发现这种残留。
+   *    标上之后，WS 一连上 `handleConnected()` 就会去问服务端：
+   *    有流则补发内容，没流则回 stream_missing → 页面把占位符删掉。
+   */
+  public noteStaleIndicator(): void {
+    if (!this.isStreaming) {
+      this.pendingIndicator = true;
+      console.info('stale indicator detected in message list; will probe server on connect');
+    }
+  }
+
   /** WS 连上：若存在未恢复的流，主动请求续流 */
   public handleConnected(): void {
     console.info('WS connected');

@@ -33,7 +33,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.7.6';
+const APP_VERSION: string = '2.7.8';
 
 @Entry
 @Component
@@ -318,6 +318,26 @@ struct ChatPage {
 
         // 建立WebSocket长连接
         this.setupWebSocket(detectedUrl);
+
+        // 启动自检：消息列表里是否残留「恢复中」占位符（上次流中断 / APP 被杀留下的）。
+        // ⚠️ 必须在这里处理：占位符是**持久化**在消息列表里的，而 engine.pendingIndicator
+        //    是内存态、重启即丢 —— 不主动标记的话，没人会再去问服务端，占位符永久留存
+        //    （实测：会话一直显示「⏳ 正在恢复连接」）。
+        // ⚠️ 注意时序：`handleConnected()` 只在 WS **刚连上那一刻**被调一次，而这里在它
+        //    之后才跑 —— 所以不能只依赖它，必须**自己直接发一次**探测。
+        //    服务端有活跃流 → 补发内容；没有 → 回 stream_missing → 页面删掉占位符。
+        //    延迟 2 秒是为了让 chatService.bind() 的异步加载先落地。
+        setTimeout((): void => {
+          if (chatService.hasIndicator()) {
+            console.info('startup: stale recovery indicator found, probing server');
+            this.engine?.noteStaleIndicator();
+            wsService.send({
+              type: 'sync_pending',
+              session_id: this.activeSessionId,
+              last_seq: -1
+            });
+          }
+        }, 2000);
 
         // S9：启动时同步一次未读数（服务端 DB 是单一数据源，AppStorage 只是缓存）
         notifyService.refreshUnread().catch((e: Error) => {

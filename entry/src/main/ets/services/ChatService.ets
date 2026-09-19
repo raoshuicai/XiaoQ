@@ -119,6 +119,22 @@ export class ChatService {
     return false;
   }
 
+  /**
+   * 消息列表里是否残留「恢复中」占位符。
+   *
+   * ⚠️ 典型场景：流被中断（切网络/APP 被杀）时插入了占位符，而下次启动时
+   *    engine.pendingIndicator 已被 reset() 清成 false —— 没人再去问服务端，
+   *    占位符就永久留在列表里（实测踩坑：会话一直显示「正在恢复连接」）。
+   */
+  public hasIndicator(): boolean {
+    for (let i: number = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].content.startsWith(PLACEHOLDER_PREFIX)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // ─────────────────────── LLM 上下文构建 ───────────────────────
 
   /**

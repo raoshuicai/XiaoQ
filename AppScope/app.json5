@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "xiaoq.debug.profile",
     "vendor": "xiaoq",
-    "versionCode": 2000706,
-    "versionName": "2.7.6",
+    "versionCode": 2000708,
+    "versionName": "2.7.8",
     "icon": "$media:app_icon",
     "label": "$string:app_name"
   }
