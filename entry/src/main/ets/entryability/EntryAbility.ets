@@ -105,9 +105,10 @@ export default class EntryAbility extends UIAbility {
       }
       windowStage.getMainWindow().then((win: window.Window) => {
         try {
-          // ① 键盘避让：OFFSET = 整页上移（RESIZE 会压缩布局，把输入栏压到键盘下方）
-          win.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET);
-          hilog.error(0x0000, 'XIAOQ-KB', 'avoid mode OFFSET ok');
+          // ① 键盘避让：OFFSET_WITH_CARET（=2）= 整页上移 + 跟随光标。
+          //    比 OFFSET(=0) 更保守：用户反馈纯 OFFSET 时按钮仍被遮住一半。
+          win.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET_WITH_CARET);
+          hilog.error(0x0000, 'XIAOQ-KB', 'avoid mode OFFSET_WITH_CARET ok');
           // ② 键盘高度监听（兜底 + 便于真机诊断）
           win.on('keyboardHeightChange', (height: number) => {
             hilog.error(0x0000, 'XIAOQ-KB', 'kbHeight=' + height);

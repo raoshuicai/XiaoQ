@@ -36,7 +36,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.11.14';
+const APP_VERSION: string = '2.11.15';
 
 @Entry
 @Component

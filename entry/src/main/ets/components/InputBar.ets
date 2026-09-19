@@ -66,8 +66,11 @@ export struct InputBar {
           .width('100%')
           // maxHeight 300 ≈ 10 行字号 15 的文本，满足"输入 10 行就是 10 行高"
           .constraintSize({ minHeight: 24, maxHeight: 300 })
-          .backgroundColor(Color.Transparent)
-          .borderRadius(0)
+          // 灰色底 + 圆角（之前误用 Color.Transparent 把底色抹掉了，用户反馈"没有底色"）
+          .backgroundColor($r('app.color.bg_input'))
+          .borderRadius(Radius.CARD)
+          // 左右留一点内边距，让文字不贴边
+          .padding({ left: 12, right: 12 })
           .fontSize(FontSize.LABEL)
           .fontColor($r('app.color.text_primary'))
           .placeholderColor($r('app.color.text_tertiary'))
@@ -117,7 +120,8 @@ export struct InputBar {
       }
       .width('100%')
       // 外层容器统一给 padding（内层 TextArea 不再设，避免叠加）
-      .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+      // bottom 给足：键盘避让若有偏差，这点间距能兜住，避免按钮被压住一半
+      .padding({ left: 12, right: 12, top: 8, bottom: 16 })
       .backgroundColor($r('app.color.bg_card'))
 
       // ─────────── 「＋」菜单（自绘浮层，向上弹出）───────────
