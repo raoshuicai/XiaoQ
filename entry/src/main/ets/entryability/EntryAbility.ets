@@ -105,10 +105,17 @@ export default class EntryAbility extends UIAbility {
       }
       windowStage.getMainWindow().then((win: window.Window) => {
         try {
-          // ① 键盘避让：OFFSET_WITH_CARET（=2）= 整页上移 + 跟随光标。
-          //    比 OFFSET(=0) 更保守：用户反馈纯 OFFSET 时按钮仍被遮住一半。
-          win.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET_WITH_CARET);
-          hilog.error(0x0000, 'XIAOQ-KB', 'avoid mode OFFSET_WITH_CARET ok');
+          // ① 键盘避让：必须用 RESIZE(压缩)，不能用 OFFSET(上移)！
+          //
+          //    ChatPage 的根是 Stack/Column 且都是 .height('100%')。
+          //    - OFFSET 只做"整页上移"，而 100% 仍按**全屏高**算 →
+          //      输入栏（贴 Column 底部）正好被移出可视区、落到键盘底下。
+          //      这就是用户反馈"＋ 和 ↑ 总被遮住一半"的原因。
+          //    - RESIZE 把窗口高度改成"屏高 − 键盘高"，
+          //      height('100%') 随之重算，输入栏贴底 = 自动落在键盘上方。
+          //    结论：容器用了 height('100%') 时，必须配 RESIZE。
+          win.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+          hilog.error(0x0000, 'XIAOQ-KB', 'avoid mode RESIZE ok');
           // ② 键盘高度监听（兜底 + 便于真机诊断）
           win.on('keyboardHeightChange', (height: number) => {
             hilog.error(0x0000, 'XIAOQ-KB', 'kbHeight=' + height);
