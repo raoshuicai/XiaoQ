@@ -23,33 +23,49 @@ export struct InputBar {
   /** S21：菜单栏回调 —— 文件 */
   onFile: () => void = () => {};
 
-  /**
-   * 菜单项（S21）。
-   * ⚠️ 用 emoji + 文字而不是系统图标：项目约定「系统图标不可靠 → 用文字按钮」，
-   *    而且内置图标在不同 API 版本上名字会变（踩过 Text.textSelectable 那类坑）。
-   */
-  @Builder
-  MenuItem(icon: string, label: string, cb: () => void) {
-    Row() {
-      Text(icon).fontSize(15)
-      Text(label).fontSize(13).fontColor('#555566').margin({ left: 4 })
-    }
-    .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-    .backgroundColor('#F0F0F5')
-    .borderRadius(15)
-    .margin({ right: 8 })
-    .onClick(() => {
-      cb();
-    })
-  }
-
   build() {
     Column() {
       // ── S21：下方菜单栏（参考飞书）──
+      // ⚠️ 这里刻意不用 @Builder 封装：@Builder 的形参是**值传递**，
+      //    把回调函数当参数传进去后点击可能不触发（实测点了没反应）。
+      //    直接内联三个按钮，回调走 this.xxx 最稳。
       Row() {
-        this.MenuItem('🎤', '语音', (): void => { this.onVoice(); })
-        this.MenuItem('🖼️', '图片', (): void => { this.onImage(); })
-        this.MenuItem('📎', '文件', (): void => { this.onFile(); })
+        Row() {
+          Text('🎤').fontSize(15)
+          Text('语音').fontSize(13).fontColor('#555566').margin({ left: 4 })
+        }
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .backgroundColor('#F0F0F5')
+        .borderRadius(15)
+        .margin({ right: 8 })
+        .onClick(() => {
+          this.onVoice();
+        })
+
+        Row() {
+          Text('🖼️').fontSize(15)
+          Text('图片').fontSize(13).fontColor('#555566').margin({ left: 4 })
+        }
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .backgroundColor('#F0F0F5')
+        .borderRadius(15)
+        .margin({ right: 8 })
+        .onClick(() => {
+          this.onImage();
+        })
+
+        Row() {
+          Text('📎').fontSize(15)
+          Text('文件').fontSize(13).fontColor('#555566').margin({ left: 4 })
+        }
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .backgroundColor('#F0F0F5')
+        .borderRadius(15)
+        .margin({ right: 8 })
+        .onClick(() => {
+          this.onFile();
+        })
+
         Blank()
       }
       .width('100%')

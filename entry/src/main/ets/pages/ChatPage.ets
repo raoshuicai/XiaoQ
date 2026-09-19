@@ -3,6 +3,8 @@ import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { HermesApi } from '../utils/HermesApi.ets';
 import { saveApiKey, loadApiKey, getOrCreateDeviceId, loadActiveSessionId, saveActiveSessionId } from '../utils/PreferencesHelper.ets';
+// S22：系统语音识别（手机自带能力，无需后端 ASR）
+import { voiceInput } from '../services/VoiceInput.ets';
 // S2/S7：WS 事件订阅 + 协议分发下沉到 ChatWsBridge（连接控制仍在 wsService）
 import { chatWsBridge, WsBridgeHooks } from '../services/ChatWsBridge.ets';
 import { wsService } from '../services/WsService.ets';
@@ -33,7 +35,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.9.7';
+const APP_VERSION: string = '2.10.0';
 
 @Entry
 @Component
@@ -125,15 +127,39 @@ struct ChatPage {
   // ─────────────────── S21：输入栏菜单栏（语音 / 图片 / 文件）───────────────────
 
   /**
-   * 「语音」—— 需要服务端提供 ASR 接口。
+   * 「语音」—— 用手机自带的语音识别（@kit.CoreSpeechKit），**不需要后端 ASR**。
    *
-   * ⚠️ 现状（已查证 2026-09-19）：xiaoq-api **没有**语音识别接口，
-   *    Hermes 侧虽有一套火山 ASR 脚本，但没有暴露给 APP 的后端路由。
-   *    所以这里先给出明确提示，不做一个点了没反应的假按钮。
-   *    后端补上 `POST /api/asr`（接火山 AUC/流式）后，这里改成录音 → 上传 → 回填文本。
+   * 交互：点一下开始听 → 边说边把中间结果填进输入框 → 说完（或再点一次）结束。
+   * 权限：module.json5 已声明 MICROPHONE，这里再做一次运行时申请。
    */
-  private onMenuVoice(): void {
-    this.showToast('语音输入需要服务端 ASR 接口，正在支持中');
+  private async onMenuVoice(): Promise<void> {
+    if (voiceInput.isListening()) {
+      voiceInput.stop();
+      this.showToast('识别结束');
+      return;
+    }
+    const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
+    const ok: boolean = await voiceInput.ensurePermission(ctx);
+    if (!ok) {
+      this.showToast('需要麦克风权限才能语音输入');
+      return;
+    }
+    this.showToast('请说话…（再点一次「语音」结束）');
+    await voiceInput.start(
+      (partial: string): void => {
+        // 中间结果：直接回填，用户能看到"边听边出字"
+        this.inputText = partial;
+      },
+      (finalText: string): void => {
+        this.inputText = (this.inputText.length > 0 && finalText.startsWith(this.inputText))
+          ? finalText
+          : (this.inputText + finalText);
+        this.showToast('识别完成，可编辑后发送');
+      },
+      (err: string): void => {
+        this.showToast(err);
+      }
+    );
   }
 
   /**

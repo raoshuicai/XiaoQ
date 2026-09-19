@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "小Q"
+    },
+    {
+      "name": "mic_reason",
+      "value": "用于语音输入：把你说的话转成文字发给小Q"
     }
   ]
 }
