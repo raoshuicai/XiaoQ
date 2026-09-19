@@ -3,8 +3,8 @@ import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { HermesApi } from '../utils/HermesApi.ets';
 import { saveApiKey, loadApiKey, getOrCreateDeviceId, loadActiveSessionId, saveActiveSessionId } from '../utils/PreferencesHelper.ets';
-// S22：系统语音识别（手机自带能力，无需后端 ASR）
-import { voiceInput } from '../services/VoiceInput.ets';
+// S23：本地图片/文件选择 + 上传
+import { mediaPicker, PickedItem } from '../services/MediaPicker.ets';
 // S2/S7：WS 事件订阅 + 协议分发下沉到 ChatWsBridge（连接控制仍在 wsService）
 import { chatWsBridge, WsBridgeHooks } from '../services/ChatWsBridge.ets';
 import { wsService } from '../services/WsService.ets';
@@ -35,7 +35,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '2.10.0';
+const APP_VERSION: string = '2.10.1';
 
 @Entry
 @Component
@@ -124,59 +124,47 @@ struct ChatPage {
     router.pushUrl({ url: 'pages/FilesPage' });
   }
 
-  // ─────────────────── S21：输入栏菜单栏（语音 / 图片 / 文件）───────────────────
+  // ─────────────────── S21：输入栏菜单栏（图片 / 文件）───────────────────
 
   /**
-   * 「语音」—— 用手机自带的语音识别（@kit.CoreSpeechKit），**不需要后端 ASR**。
+   * 「图片」—— 选本地图片 → 上传 → 插入引用。
    *
-   * 交互：点一下开始听 → 边说边把中间结果填进输入框 → 说完（或再点一次）结束。
-   * 权限：module.json5 已声明 MICROPHONE，这里再做一次运行时申请。
+   * ⚠️ 系统 uploadFile **不返回响应体**，所以服务端按原名存储，客户端自己拼 URL。
    */
-  private async onMenuVoice(): Promise<void> {
-    if (voiceInput.isListening()) {
-      voiceInput.stop();
-      this.showToast('识别结束');
-      return;
-    }
+  private async onMenuImage(): Promise<void> {
     const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
-    const ok: boolean = await voiceInput.ensurePermission(ctx);
-    if (!ok) {
-      this.showToast('需要麦克风权限才能语音输入');
+    const item: PickedItem | null = await mediaPicker.pickImage();
+    if (item === null) {
       return;
     }
-    this.showToast('请说话…（再点一次「语音」结束）');
-    await voiceInput.start(
-      (partial: string): void => {
-        // 中间结果：直接回填，用户能看到"边听边出字"
-        this.inputText = partial;
-      },
-      (finalText: string): void => {
-        this.inputText = (this.inputText.length > 0 && finalText.startsWith(this.inputText))
-          ? finalText
-          : (this.inputText + finalText);
-        this.showToast('识别完成，可编辑后发送');
-      },
-      (err: string): void => {
-        this.showToast(err);
-      }
-    );
+    this.showToast('正在上传 ' + item.name + ' …');
+    const url: string = await mediaPicker.upload(ctx, item);
+    if (url.length === 0) {
+      this.showToast('上传失败，请检查网络后重试');
+      return;
+    }
+    // 追加到输入框（用户可继续补充说明再发）
+    const tag: string = '[图片] ' + url;
+    this.inputText = this.inputText.length > 0 ? (this.inputText + '\n' + tag) : tag;
+    this.showToast('已上传，可补充说明后发送');
   }
 
-  /**
-   * 「图片」—— 需要服务端提供上传接口。
-   *
-   * ⚠️ 现状（已查证 2026-09-19）：模型侧是支持的（Gateway 默认 gemini-2.5-flash 多模态），
-   *    但 xiaoq-api **没有**文件/图片上传接口，图片无法进入消息体。
-   *    后端补上 `POST /api/upload`（存盘 + 返回可访问 URL）+ 消息支持多模态内容后，
-   *    这里改成选图 → 上传 → 以 image_url 形式发送。
-   */
-  private onMenuImage(): void {
-    this.showToast('图片消息需要服务端上传接口，正在支持中');
-  }
-
-  /** 「文件」—— 复用已有的知识库浏览页（Vault 里的 md/pdf 都能看）*/
-  private onMenuFile(): void {
-    this.navigateToFiles();
+  /** 「文件」—— 选本地文件 → 上传 → 插入引用（Vault 浏览仍走 📁 图标）*/
+  private async onMenuFile(): Promise<void> {
+    const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
+    const item: PickedItem | null = await mediaPicker.pickDocument();
+    if (item === null) {
+      return;
+    }
+    this.showToast('正在上传 ' + item.name + ' …');
+    const url: string = await mediaPicker.upload(ctx, item);
+    if (url.length === 0) {
+      this.showToast('上传失败，请检查网络后重试');
+      return;
+    }
+    const tag: string = '[文件] ' + url;
+    this.inputText = this.inputText.length > 0 ? (this.inputText + '\n' + tag) : tag;
+    this.showToast('已上传，可补充说明后发送');
   }
 
   /**
@@ -702,9 +690,6 @@ struct ChatPage {
           loading: this.isLoading,
           onSend: () => {
             this.sendMessage();
-          },
-          onVoice: (): void => {
-            this.onMenuVoice();
           },
           onImage: (): void => {
             this.onMenuImage();

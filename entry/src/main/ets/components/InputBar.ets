@@ -2,7 +2,7 @@
  * InputBar —— 底部输入区
  *
  * S6 从 ChatPage 的 build() 内联布局抽出。
- * S21 参考飞书增加下方菜单栏：语音 / 图片 / 文件。
+ * S21 参考飞书增加下方菜单栏：图片 / 文件。（语音已移除：键盘自带语音输入）
  *
  * 输入框用 @Link 与父组件双向绑定（而不是内部 @State + 回传），
  * 因为父组件在发送成功后需要主动清空输入框 —— 单向数据流做不到这一点。
@@ -16,8 +16,6 @@ export struct InputBar {
   @Prop loading: boolean = false;
   /** 发送回调（父组件负责校验与清空） */
   onSend: () => void = () => {};
-  /** S21：菜单栏回调 —— 语音 */
-  onVoice: () => void = () => {};
   /** S21：菜单栏回调 —— 图片 */
   onImage: () => void = () => {};
   /** S21：菜单栏回调 —— 文件 */
@@ -30,18 +28,6 @@ export struct InputBar {
       //    把回调函数当参数传进去后点击可能不触发（实测点了没反应）。
       //    直接内联三个按钮，回调走 this.xxx 最稳。
       Row() {
-        Row() {
-          Text('🎤').fontSize(15)
-          Text('语音').fontSize(13).fontColor('#555566').margin({ left: 4 })
-        }
-        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-        .backgroundColor('#F0F0F5')
-        .borderRadius(15)
-        .margin({ right: 8 })
-        .onClick(() => {
-          this.onVoice();
-        })
-
         Row() {
           Text('🖼️').fontSize(15)
           Text('图片').fontSize(13).fontColor('#555566').margin({ left: 4 })
