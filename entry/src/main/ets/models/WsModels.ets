@@ -10,6 +10,8 @@
  * 本文件不得 import 任何业务代码（见方案 V2 §2.2 分层铁律）。
  */
 
+import { MsgMetrics } from './ChatModels.ets';
+
 export interface WsMessage {
   type: string;
   // 推送/授权
@@ -40,6 +42,8 @@ export interface WsMessage {
   command?: string;       // 需要授权的命令
   pattern_keys?: string[];// 匹配的模式
   choices?: string[];     // 可选操作列表
+  // 性能指标（S41）：chat_done 帧附带
+  metrics?: MsgMetrics;
   // 断点续流（方案三）
   seq?: number;           // token 序列号
   last_seq?: number;      // 客户端最后收到的 seq

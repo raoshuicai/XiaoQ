@@ -15,7 +15,7 @@ import { chatService } from '../services/ChatService.ets';
 import { ChatStreamEngine, StreamCallbacks, STALL_TIMEOUT_NEW_SESSION } from '../core/ChatStreamEngine.ets';
 import { systemClock } from '../core/Timers.ets';
 // S1：所有共享类型统一从 models 层引入（HermesApi/PreferencesHelper/WebSocketClient 不再自行定义）
-import { ChatMessage, ChatRecord } from '../models/ChatModels.ets';
+import { ChatMessage, ChatRecord, MsgMetrics } from '../models/ChatModels.ets';
 import { WsMessage } from '../models/WsModels.ets';
 // S5：网络检测收口到 ApiConfig
 import { apiConfig } from '../core/ApiConfig.ets';
@@ -36,7 +36,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.0.0';
+const APP_VERSION: string = '3.1.0';
 
 @Entry
 @Component
@@ -246,7 +246,7 @@ struct ChatPage {
       this.streamContent = full;
       this.scrollToBottom();
     };
-    cb.onCompletion = (finalContent: string): void => {
+    cb.onCompletion = (finalContent: string, metrics?: MsgMetrics): void => {
       if (finalContent.length > 0) {
         // S19：去重 —— 同一份回复可能已通过「拉历史」或「sync_pending 补投」进过列表，
         // 再来一次就会出现两条一模一样的回复（实测）。
@@ -254,7 +254,8 @@ struct ChatPage {
           console.info('S19 duplicate completion ignored');
         } else if (!this.replaceIndicator(finalContent)) {
           // 替换掉恢复提示（如果存在），只有没替换时才追加
-          chatService.append('assistant', finalContent);
+          // S41：把本轮指标一起挂在消息上（metrics 为 undefined 时不显示）
+          chatService.append('assistant', finalContent, metrics);
           this.syncMessages();
         }
         this.scrollToBottom();

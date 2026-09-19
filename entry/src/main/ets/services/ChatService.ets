@@ -15,7 +15,7 @@
  */
 
 import { common } from '@kit.AbilityKit';
-import { ChatMessage, ChatRecord, StoredMessage } from '../models/ChatModels.ets';
+import { ChatMessage, ChatRecord, StoredMessage, MsgMetrics } from '../models/ChatModels.ets';
 import { Clock, NO_TIMER, systemClock } from '../core/Timers.ets';
 import {
   hasSessionMessages, loadSessionMessages, saveSessionMessages,
@@ -57,12 +57,17 @@ export class ChatService {
   // ─────────────────────────── 变更操作 ───────────────────────────
 
   /** 追加一条消息（自动补 msg_id 并触发防抖持久化） */
-  public append(role: string, content: string): void {
+  /**
+   * 追加一条消息。
+   * @param metrics S41：可选，本轮的 TTFT / TPS / KV 命中（只挂在 assistant 上）
+   */
+  public append(role: string, content: string, metrics?: MsgMetrics): void {
     const msg: ChatMessage = {
       role: role,
       content: content,
       msg_id: this.newMsgId(),
-      createdAt: Date.now()        // S21：记下时间，气泡上方要显示
+      createdAt: Date.now(),       // S21：记下时间，气泡上方要显示
+      metrics: metrics             // S41：性能指标（可为 undefined）
     };
     this.messages.push(msg);
     this.scheduleSave();

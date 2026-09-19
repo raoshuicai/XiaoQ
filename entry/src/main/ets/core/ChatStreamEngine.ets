@@ -17,6 +17,7 @@
  */
 
 import { Clock, NO_TIMER } from './Timers.ets';
+import { MsgMetrics } from '../models/ChatModels.ets';
 
 // ── 时间常量：数值长期调优得出，搬迁时一字不改 ──
 const STALL_TIMEOUT: number = 20000;      // 流式停滞 20s → 主动请求续流
@@ -50,7 +51,12 @@ export class StreamCallbacks {
 
   onContentUpdate: (fullContent: string) => void = (fullContent: string): void => {};
 
-  onCompletion: (finalContent: string) => void = (finalContent: string): void => {};
+  /**
+   * S41：流结束。第二个参数是本轮性能指标（老服务端不带 → undefined）。
+   * ⚠️ 用可选参数而不是新回调，避免动调用方契约。
+   */
+  onCompletion: (finalContent: string, metrics?: MsgMetrics) => void =
+    (finalContent: string, metrics?: MsgMetrics): void => {};
 
   onFailure: (message: string) => void = (message: string): void => {};
 
@@ -182,7 +188,7 @@ export class ChatStreamEngine {
    * isStreaming / isLoading（原实现在 streamContent 为空时同样要复位这些 UI 状态）。
    * 是否落库交由页面按内容长度自行判断。
    */
-  public handleDone(): void {
+  public handleDone(metrics?: MsgMetrics): void {
     const finalContent: string = this.streamContent;
     this.streamContent = '';
     this.isStreaming = false;
@@ -190,7 +196,7 @@ export class ChatStreamEngine {
     this.stopSyncRetry();
     this.clearStallTimer();
     this.clearResumeTimer();
-    this.cb.onCompletion(finalContent);
+    this.cb.onCompletion(finalContent, metrics);
   }
 
   /** chat_error：流失败 */

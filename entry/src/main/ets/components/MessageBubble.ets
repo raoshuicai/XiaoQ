@@ -8,7 +8,7 @@
  *   千万不要在这里做「就地修改 message.content」—— @Prop 观测不到深层变更。
  */
 
-import { ChatMessage } from '../models/ChatModels.ets';
+import { ChatMessage, MsgMetrics } from '../models/ChatModels.ets';
 
 /**
  * 消息时间格式化（S21）。
@@ -29,6 +29,34 @@ function fmtMsgTime(ms: number | undefined): string {
     return hhmm;
   }
   return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + hhmm;
+}
+
+/**
+ * S41：把本轮性能指标渲染成一行小字。
+ * 格式与 Desktop 的 perf-metrics footer 保持一致：⚡ TTFT 1.59s · TPS 108 tok/s · KV 命中 99.7% · 7 次调用
+ * 任何一项缺失就跳过它；全缺则返回空串（调用方据此不渲染）。
+ */
+function fmtMetrics(m: MsgMetrics | undefined): string {
+  if (m === undefined) {
+    return '';
+  }
+  const parts: string[] = [];
+  if (m.ttft_ms !== undefined && m.ttft_ms > 0) {
+    parts.push('TTFT ' + (m.ttft_ms / 1000).toFixed(2) + 's');
+  }
+  if (m.tps !== undefined && m.tps > 0) {
+    parts.push('TPS ' + m.tps.toFixed(0) + ' tok/s');
+  }
+  if (m.kv_hit !== undefined && m.kv_hit > 0) {
+    parts.push('KV 命中 ' + (m.kv_hit * 100).toFixed(1) + '%');
+  }
+  if (m.calls !== undefined && m.calls > 0) {
+    parts.push(m.calls.toString() + ' 次调用');
+  }
+  if (parts.length === 0) {
+    return '';
+  }
+  return '⚡ ' + parts.join(' · ');
 }
 
 @Component
@@ -72,6 +100,16 @@ export struct MessageBubble {
         //    "Column 宽度取决于 Text、Text 宽度又取决于 Column" 的循环依赖，
         //    ArkUI 算错后文字会溢出气泡右边界 —— 用户看到的就是"最右边一列字被挡"。
         //    去掉后由 Column 按内容自适应，配合 maxWidth 限制上限即可。
+        // S41：指标行（TTFT / TPS / KV 命中）—— 只在 assistant 且拿到 metrics 时显示
+        if (this.message.role === 'assistant' && this.message.metrics !== undefined
+            && fmtMetrics(this.message.metrics).length > 0) {
+          Text(fmtMetrics(this.message.metrics))
+            .fontSize(11)
+            .fontColor($r('app.color.text_tertiary'))
+            .margin({ top: 8 })
+            .copyOption(CopyOptions.LocalDevice)
+        }
+
         Text(this.message.content)
           .fontSize(15)
           .fontColor(this.message.role === 'user' ? $r('app.color.bubble_user_text') : $r('app.color.bubble_bot_text'))

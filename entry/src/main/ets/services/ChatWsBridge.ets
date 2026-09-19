@@ -74,8 +74,9 @@ export class ChatWsBridge {
     }));
 
     // chat_done：流式完成（落库与 UI 复位在 engine 的回调里）
-    this.unsubs.push(eventBus.on(Events.CHAT_DONE, (): void => {
-      getEngine()?.handleDone();
+    this.unsubs.push(eventBus.on(Events.CHAT_DONE, (m: WsMessage): void => {
+      // S41：chat_done 现在带 metrics（TTFT / TPS / KV 命中）
+      getEngine()?.handleDone(m.metrics);
     }));
 
     // chat_error：流式失败（UI 展示在 engine 的回调里）
