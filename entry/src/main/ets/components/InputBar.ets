@@ -23,39 +23,6 @@ export struct InputBar {
 
   build() {
     Column() {
-      // ── S21：下方菜单栏（参考飞书）──
-      // ⚠️ 这里刻意不用 @Builder 封装：@Builder 的形参是**值传递**，
-      //    把回调函数当参数传进去后点击可能不触发（实测点了没反应）。
-      //    直接内联三个按钮，回调走 this.xxx 最稳。
-      Row() {
-        Row() {
-          Text('🖼️').fontSize(15)
-          Text('图片').fontSize(13).fontColor('#555566').margin({ left: 4 })
-        }
-        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-        .backgroundColor('#F0F0F5')
-        .borderRadius(15)
-        .margin({ right: 8 })
-        .onClick(() => {
-          this.onImage();
-        })
-
-        Row() {
-          Text('📎').fontSize(15)
-          Text('文件').fontSize(13).fontColor('#555566').margin({ left: 4 })
-        }
-        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-        .backgroundColor('#F0F0F5')
-        .borderRadius(15)
-        .margin({ right: 8 })
-        .onClick(() => {
-          this.onFile();
-        })
-
-        Blank()
-      }
-      .width('100%')
-      .padding({ bottom: 8 })
 
       // ── 输入行 ──
       Row() {
@@ -89,6 +56,40 @@ export struct InputBar {
         })
       }
       .width('100%')
+
+      // ── S21：菜单栏（图片/文件）—— 用户要求放在输入框下方 ──
+      // ⚠️ 这里刻意不用 @Builder 封装：@Builder 的形参是**值传递**，
+      //    把回调函数当参数传进去后点击可能不触发（实测点了没反应）。
+      //    直接内联三个按钮，回调走 this.xxx 最稳。
+      Row() {
+        Row() {
+          Text('🖼️').fontSize(15)
+          Text('图片').fontSize(13).fontColor('#555566').margin({ left: 4 })
+        }
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .backgroundColor('#F0F0F5')
+        .borderRadius(15)
+        .margin({ right: 8 })
+        .onClick(() => {
+          this.onImage();
+        })
+
+        Row() {
+          Text('📎').fontSize(15)
+          Text('文件').fontSize(13).fontColor('#555566').margin({ left: 4 })
+        }
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .backgroundColor('#F0F0F5')
+        .borderRadius(15)
+        .margin({ right: 8 })
+        .onClick(() => {
+          this.onFile();
+        })
+
+        Blank()
+      }
+      .width('100%')
+      .padding({ top: 6 })
     }
     .width('100%')
     .padding({ left: 12, right: 12, bottom: 12, top: 8 })

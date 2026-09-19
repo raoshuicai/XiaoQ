@@ -92,9 +92,10 @@ export struct MessageBubble {
       }
     }
     .width('100%')
-    // S21：两边只留一点空白（原来靠气泡 maxWidth 留白，现在由外层 padding 控制）
-    .padding({ left: this.message.role === 'user' ? 12 : 6,
-               right: this.message.role === 'user' ? 6 : 12 })
+    // S24 修：两侧留白写反了 —— 用户消息右对齐，**右侧**必须有留白，否则最右一列字被屏幕边缘挡掉；
+    //        小Q 消息左对齐，**左侧**要有留白。空白侧（用户左侧 / 小Q 右侧）留小一点即可。
+    .padding({ left: this.message.role === 'user' ? 6 : 14,
+               right: this.message.role === 'user' ? 14 : 6 })
     .margin({ top: 8, bottom: 4 })
     .justifyContent(FlexAlign.SpaceBetween)
     .alignItems(VerticalAlign.Top)
