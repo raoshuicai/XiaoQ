@@ -81,11 +81,11 @@ export struct InputBar {
           Row() {
             Text('＋')
               .fontSize(20)
-              .fontColor($r('app.color.text_secondary'))
+              // 用户要求：默认纯黑字（白底黑字）
+              .fontColor($r('app.color.btn_circle_fg'))
               .textAlign(TextAlign.Center)
               .width(32)
               .height(32)
-              // 用户要求：＋ 默认白色底
               .backgroundColor($r('app.color.btn_circle_bg'))
               .borderRadius(16)
               .onClick(() => {
@@ -97,12 +97,11 @@ export struct InputBar {
             Text('↑')
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
-              // 用户要求：↑ 的字**始终白色**（两种状态下都不变）
-              .fontColor($r('app.color.text_on_brand'))
+              // 用户要求：默认纯黑字；有输入时整圈变主题色 #4F46E5 且**字保持白**
+              .fontColor(this.canSend() ? $r('app.color.text_on_brand') : $r('app.color.btn_circle_fg'))
               .textAlign(TextAlign.Center)
               .width(32)
               .height(32)
-              // 默认白底；有输入时整圈变主题色（字仍白）
               .backgroundColor(this.canSend() ? $r('app.color.brand') : $r('app.color.btn_circle_bg'))
               .borderRadius(16)
               .onClick(() => {

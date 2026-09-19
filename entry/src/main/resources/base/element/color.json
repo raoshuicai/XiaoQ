@@ -95,6 +95,10 @@
     {
       "name": "btn_circle_bg",
       "value": "#FFFFFF"
+    },
+    {
+      "name": "btn_circle_fg",
+      "value": "#000000"
     }
   ]
 }
