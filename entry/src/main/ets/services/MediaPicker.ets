@@ -93,14 +93,15 @@ export class MediaPicker {
   private copyToSandbox(ctx: common.Context, item: PickedItem): string {
     const srcUri: string = item.uri;
     // 已经在本应用沙箱里的（如 file://.../cache/...）不用再拷
-    if (srcUri.indexOf(ctx.cacheDir) >= 0 || srcUri.indexOf(ctx.filesDir) >= 0) {
-      hilog.error(0x0001, TAG, 'already in sandbox, skip copy');
+    if (srcUri.startsWith('internal://cache/')) {
+      hilog.error(0x0001, TAG, 'already internal://cache, skip copy');
       return srcUri;
     }
 
     // 目标：cacheDir/<时间戳>_<原名>；cacheDir 系统会自动清理，不用长期占空间
     const safe: string = item.name.length > 0 ? item.name : 'upload.bin';
-    const dstPath: string = ctx.cacheDir + '/' + Date.now().toString() + '_' + safe;
+    const safeName: string = Date.now().toString() + '_' + safe;   // 仅文件名，无目录
+    const dstPath: string = ctx.cacheDir + '/' + safeName;
 
     hilog.error(0x0001, TAG, '[COPY] start src=%{public}s', srcUri);
     hilog.error(0x0001, TAG, '[COPY] dst=%{public}s', dstPath);
@@ -130,23 +131,32 @@ export class MediaPicker {
       }
     }
 
-    const dstUri: string = 'file://' + dstPath;
-    // 校验：拷贝后文件大小应 > 0
+    // ★ 关键：request.uploadFile 只接受 **internal://cache/<文件名>** 这种内部路径，
+    //   给 file:///data/... 会报 "GetInternalPath failed, filePath is not valid"。
+    //   internal://cache/ 后面只能是**相对 cacheDir 的文件名**（不带目录）。
+    const dstUri: string = 'internal://cache/' + safeName;
     try {
       const st: fs.Stat = fs.statSync(dstPath);
-      hilog.error(0x0001, TAG, '[COPY] done dstUri=%{public}s size=%{public}d', dstUri, st.size);
+      hilog.error(0x0001, TAG, '[COPY] done uploadUri=%{public}s (real=%{public}s) size=%{public}d',
+        dstUri, dstPath, st.size);
     } catch (x) {
-      hilog.error(0x0001, TAG, '[COPY] done dstUri=%{public}s (stat failed)', dstUri);
+      hilog.error(0x0001, TAG, '[COPY] done uploadUri=%{public}s (stat failed)', dstUri);
     }
     return dstUri;
   }
 
   /** 删掉拷进沙箱的临时文件（失败不影响主流程） */
-  private removeSandboxCopy(uri: string): void {
+  private removeSandboxCopy(ctx: common.Context, uri: string): void {
     try {
-      const path: string = uri.startsWith('file://') ? uri.substring(7) : uri;
+      let path: string = uri;
+      if (uri.startsWith('internal://cache/')) {
+        // internal://cache/<文件名> -> <cacheDir>/<文件名>
+        path = ctx.cacheDir + '/' + uri.substring('internal://cache/'.length);
+      } else if (uri.startsWith('file://')) {
+        path = uri.substring(7);
+      }
       fs.unlinkSync(path);
-      hilog.error(0x0001, TAG, 'temp file removed');
+      hilog.error(0x0001, TAG, 'temp file removed: %{public}s', path);
     } catch (e) {
       hilog.error(0x0001, TAG, 'remove temp failed: %{public}s', (e as BusinessError).message);
     }
@@ -215,7 +225,7 @@ export class MediaPicker {
     } finally {
       // 1) 传完就删临时文件（无论成功失败，避免 cacheDir 堆积）
       if (copied && sandboxUri.length > 0) {
-        this.removeSandboxCopy(sandboxUri);
+        this.removeSandboxCopy(ctx, sandboxUri);
       }
     }
   }
