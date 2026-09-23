@@ -53,4 +53,15 @@ export interface StoredMessage {
   role: string;
   content: string;
   msg_id?: string;
+  /**
+   * S44（修复 1+2）：消息时间（毫秒时间戳）。
+   * ⚠️ 此前只存 role/content/msg_id，导致重开 APP 后气泡上方的时间戳消失。
+   */
+  createdAt?: number;
+  /**
+   * S44（修复 1+2）：本轮性能指标（TTFT / TPS / KV 命中）。
+   * ⚠️ 此前未持久化，导致重开 APP 后指标行消失。
+   * 旧数据没有此字段 → undefined → UI 自动不渲染（fmtMetrics 已判空）。
+   */
+  metrics?: MsgMetrics;
 }

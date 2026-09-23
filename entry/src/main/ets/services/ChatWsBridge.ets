@@ -29,6 +29,8 @@ export class WsBridgeHooks {
   onApprove: (msg: WsMessage) => void = () => {};
   /** S12：服务端确认了本轮会话（含新建会话的 ID）*/
   onChatStarted: (msg: WsMessage) => void = () => {};
+  /** S45-A：工具执行进度（长工具轮期间给用户反馈） */
+  onProgress: (msg: WsMessage) => void = () => {};
 }
 
 export class ChatWsBridge {
@@ -87,6 +89,11 @@ export class ChatWsBridge {
     // 审批请求：交给全局审批中心
     this.unsubs.push(eventBus.on(Events.APPROVE_REQUEST, (m: WsMessage): void => {
       hooks.onApprove(m);
+    }));
+
+    // S45-A：工具执行进度 → 页面显示（长工具轮期间用户不再只看到"思考中"）
+    this.unsubs.push(eventBus.on(Events.CHAT_PROGRESS, (m: WsMessage): void => {
+      hooks.onProgress(m);
     }));
 
     // S12：本轮所属会话确认（新建会话时 APP 据此记住 ID）

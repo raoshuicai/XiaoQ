@@ -42,6 +42,19 @@ export interface WsMessage {
   command?: string;       // 需要授权的命令
   pattern_keys?: string[];// 匹配的模式
   choices?: string[];     // 可选操作列表
+  // 工具进度（S45-A）：chat_progress 帧附带
+  /** 工具名，如 terminal / read_file */
+  tool?: string;
+  /** 人类可读描述，如 "ls /tmp + 2 commands" */
+  label?: string;
+  /** running | completed | stream_end */
+  status?: string;
+  /** 并发场景区分同名工具的多次调用 */
+  toolCallId?: string;
+  emoji?: string;
+  /** S45-A3: 本轮工具序号（服务端自增），显示成 [N] */
+  index?: number;
+
   // 性能指标（S41）：chat_done 帧附带
   metrics?: MsgMetrics;
   // 断点续流（方案三）

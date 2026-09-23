@@ -326,19 +326,82 @@ export class ChatService {
     return 'm-' + Date.now().toString() + '-' + Math.floor(Math.random() * 100000).toString();
   }
 
+  /**
+   * 持久化结构 → 内存消息。
+   *
+   * S44（修复 1+2）：恢复 createdAt 和 metrics。
+   * ⚠️ 旧数据无这两个字段 → undefined → UI 层已有防御（fmtMsgTime 返回空串、
+   *    fmtMetrics 返回空串 → 整行不渲染），不会出现 NaN 或 1970-01-01。
+   */
+  /**
+   * S45（A）：从 msg_id 里把时间戳捞回来。
+   *
+   * msg_id 的格式是 `m-<毫秒时间戳>-<随机数>`（见 newMsgId()），
+   * 所以第 2 段就是消息产生的时间 —— 修复 1+2 之前存的历史消息没有
+   * createdAt 字段，但 msg_id 里有，可以借此补出时间。
+   *
+   * @returns 时间戳（毫秒）；解析不出或明显不合理时返回 undefined
+   */
+  private tsFromMsgId(msgId: string | undefined): number | undefined {
+    if (msgId === undefined || msgId.length === 0) {
+      return undefined;
+    }
+    const parts: string[] = msgId.split('-');
+    if (parts.length < 2) {
+      return undefined;
+    }
+    const t: number = parseInt(parts[1], 10);
+    // 合理性校验：2020-09-13 ~ 2033-05-18 之间（避免把随机数当时间）
+    if (isNaN(t) || t < 1600000000000 || t > 2000000000000) {
+      return undefined;
+    }
+    return t;
+  }
+
+  /**
+   * 持久化结构 → 内存消息。
+   *
+   * S44（修复 1+2）：恢复 createdAt 和 metrics。
+   * S45（A）：旧消息没有 createdAt 时，**尝试从 msg_id 解析补出来** ——
+   *   这样修复前存的历史消息也能显示时间（无 msg_id 的仍为 undefined，不显示）。
+   * ⚠️ UI 层已有防御：fmtMsgTime 返回空串、fmtMetrics 返回空串 → 整行不渲染。
+   */
   private toChatMessages(list: StoredMessage[]): ChatMessage[] {
     const out: ChatMessage[] = [];
     for (let i: number = 0; i < list.length; i++) {
-      out.push({ role: list[i].role, content: list[i].content, msg_id: list[i].msg_id });
+      const stored: StoredMessage = list[i];
+      let created: number | undefined = stored.createdAt;
+      if (created === undefined) {
+        created = this.tsFromMsgId(stored.msg_id);   // S45：旧数据兜底
+      }
+      out.push({
+        role: stored.role,
+        content: stored.content,
+        msg_id: stored.msg_id,
+        createdAt: created,
+        metrics: stored.metrics,       // 旧数据为 undefined，UI 自动隐藏
+      });
     }
     return out;
   }
 
+  /**
+   * 内存消息 → 持久化结构。
+   *
+   * S44（修复 1+2）：**必须带上 createdAt 和 metrics** —— 此前只存 3 个字段，
+   * 导致重开 APP 后时间戳和 TTFT/TPS 指标行双双消失。
+   */
   private toStored(list: ChatMessage[]): StoredMessage[] {
     const out: StoredMessage[] = [];
     const start: number = list.length > MAX_MESSAGES ? list.length - MAX_MESSAGES : 0;
     for (let i: number = start; i < list.length; i++) {
-      out.push({ role: list[i].role, content: list[i].content, msg_id: list[i].msg_id });
+      out.push({
+        role: list[i].role,
+        content: list[i].content,
+        msg_id: list[i].msg_id,
+        createdAt: list[i].createdAt,   // S44：时间戳持久化
+        metrics: list[i].metrics,       // S44：性能指标持久化
+      });
     }
     return out;
   }

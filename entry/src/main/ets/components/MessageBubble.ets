@@ -14,6 +14,12 @@ import { ChatMessage, MsgMetrics } from '../models/ChatModels.ets';
  * 消息时间格式化（S21）。
  * 规则（用户指定）：当天 → `HH:mm`；非当天 → `MM-DD HH:mm`（都是 24 小时制）。
  */
+/**
+ * S45-B2：用户角色的显示名。
+ * 需求原文：「后面把我的角色定义为阿水，把时间显示在阿水右边」。
+ */
+const USER_NAME: string = '阿水';
+
 function fmtMsgTime(ms: number | undefined): string {
   if (ms === undefined || ms <= 0) {
     return '';
@@ -26,9 +32,14 @@ function fmtMsgTime(ms: number | undefined): string {
     && d.getMonth() === now.getMonth()
     && d.getDate() === now.getDate();
   if (sameDay) {
-    return hhmm;
+    return hhmm;                                    // 当天：HH:MM
   }
-  return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + hhmm;
+  // S45-B3：非当天要带日期。跨年时再补上年份，避免 '09-22 06:57' 有歧义。
+  const md: string = pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  if (d.getFullYear() !== now.getFullYear()) {
+    return d.getFullYear().toString() + '-' + md + ' ' + hhmm;   // YYYY-MM-DD HH:MM
+  }
+  return md + ' ' + hhmm;                           // MM-DD HH:MM
 }
 
 /**
@@ -67,33 +78,65 @@ export struct MessageBubble {
   onDelete: (index: number) => void = () => {};
 
   build() {
-    Row() {
-      if (this.message.role === 'user') {
-        Blank()
+    // S45-B2：最外层 Column —— 承载「名称/时间行」+「气泡行」两部分。
+    // 为什么必须这样分层：
+    //   ⚠️ 时间行若写在气泡 Column **内部**，气泡 Column 的宽度由内容决定，
+    //      而时间行再声明 width('100%') 会形成「列宽取决于行宽、行宽取决于列宽」
+    //      的循环依赖 —— 实测被算成 5px 宽，时间戳几乎不可见（用户反馈"看不到"）。
+    //   放到外层后，width('100%') 相对整行宽度，安全。
+    Column() {
+      // ── ① 名称 + 时间行（在气泡上方）──
+      if (this.message.role === 'assistant') {
+        // 小Q：左对齐，头像 + 名称 + 时间
+        Row() {
+          Image($r('app.media.bot_avatar'))
+            .width(20)
+            .height(20)
+            .borderRadius(10)
+            .margin({ right: 6 })
+          Text('小Q')
+            .fontSize(12)
+            .fontColor($r('app.color.brand'))
+            .fontWeight(FontWeight.Medium)
+          // S21：时间信息（当天=时:分 / 非当天=月-日 时:分）
+          if (fmtMsgTime(this.message.createdAt).length > 0) {
+            Text(fmtMsgTime(this.message.createdAt))
+              .fontSize(11)
+              .fontColor($r('app.color.text_tertiary'))
+              .margin({ left: 8 })
+          }
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.Start)
+        .margin({ bottom: 4 })
+      } else if (fmtMsgTime(this.message.createdAt).length > 0
+                 || USER_NAME.length > 0) {
+        // S45-B2：用户自己发的消息 —— 右对齐显示「阿水 + 时间」。
+        // 需求原文："把时间显示在阿水右边"，与左侧「小Q + 时间」左右对称。
+        Row() {
+          Text(USER_NAME)
+            .fontSize(12)
+            .fontColor($r('app.color.text_secondary'))
+            .fontWeight(FontWeight.Medium)
+          if (fmtMsgTime(this.message.createdAt).length > 0) {
+            Text(fmtMsgTime(this.message.createdAt))
+              .fontSize(11)
+              .fontColor($r('app.color.text_tertiary'))
+              .margin({ left: 8 })
+          }
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+        .margin({ bottom: 4 })
       }
 
-      Column() {
-        if (this.message.role === 'assistant') {
-          Row() {
-            Image($r('app.media.bot_avatar'))
-              .width(20)
-              .height(20)
-              .borderRadius(10)
-              .margin({ right: 6 })
-            Text('小Q')
-              .fontSize(12)
-              .fontColor($r('app.color.brand'))
-              .fontWeight(FontWeight.Medium)
-            // S21：时间信息（当天=时:分 / 非当天=月-日 时:分）
-            if (fmtMsgTime(this.message.createdAt).length > 0) {
-              Text(fmtMsgTime(this.message.createdAt))
-                .fontSize(11)
-                .fontColor($r('app.color.text_tertiary'))
-                .margin({ left: 8 })
-            }
-          }
-          .margin({ bottom: 4 })
+      // ── ② 气泡行 ──
+      Row() {
+        if (this.message.role === 'user') {
+          Blank()
         }
+
+        Column() {
 
         // ⚠️ 这里**不要**写 .width('100%')：
         //    外层 Column 用的是 maxWidth 约束，Text 再声明 100% 会形成
@@ -128,18 +171,20 @@ export struct MessageBubble {
       .constraintSize({ maxWidth: this.message.role === 'assistant' ? '100%' : '80%' })
       .alignItems(HorizontalAlign.Start)
 
-      if (this.message.role === 'assistant') {
-        Blank()
+        if (this.message.role === 'assistant') {
+          Blank()
+        }
       }
+      .width('100%')
+      // S24 修：两侧留白写反了 —— 用户消息右对齐，**右侧**必须有留白，否则最右一列字被屏幕边缘挡掉；
+      //        小Q 消息左对齐，**左侧**要有留白。空白侧（用户左侧 / 小Q 右侧）留小一点即可。
+      .padding({ left: this.message.role === 'user' ? 6 : 14,
+                 right: this.message.role === 'user' ? 14 : 6 })
+      .justifyContent(FlexAlign.SpaceBetween)
+      .alignItems(VerticalAlign.Top)
     }
     .width('100%')
-    // S24 修：两侧留白写反了 —— 用户消息右对齐，**右侧**必须有留白，否则最右一列字被屏幕边缘挡掉；
-    //        小Q 消息左对齐，**左侧**要有留白。空白侧（用户左侧 / 小Q 右侧）留小一点即可。
-    .padding({ left: this.message.role === 'user' ? 6 : 14,
-               right: this.message.role === 'user' ? 14 : 6 })
     .margin({ top: 8, bottom: 4 })
-    .justifyContent(FlexAlign.SpaceBetween)
-    .alignItems(VerticalAlign.Top)
     .gesture(
       LongPressGesture({ repeat: false, duration: 500 })
         .onAction(() => {

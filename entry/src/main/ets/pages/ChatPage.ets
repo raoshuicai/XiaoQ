@@ -23,6 +23,8 @@ import { apiConfig } from '../core/ApiConfig.ets';
 import { AppHeader } from '../components/AppHeader.ets';
 import { MessageBubble } from '../components/MessageBubble.ets';
 import { StreamingBubble } from '../components/StreamingBubble.ets';
+// S45-A：工具执行进度条（长工具轮期间给用户反馈）
+import { ToolProgressBar, ToolProgressItem } from '../components/ToolProgressBar.ets';
 import { InputBar } from '../components/InputBar.ets';
 import { ApproveLayer } from '../components/ApproveLayer.ets';
 import { SettingsPanel } from '../components/SettingsPanel.ets';
@@ -36,7 +38,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.3.0';
+const APP_VERSION: string = '3.9.0';
 
 @Entry
 @Component
@@ -57,6 +59,11 @@ struct ChatPage {
   @StorageLink('activeSessionId') @Watch('onSessionChanged') activeSessionId: string = '';
   /** S43：本会话 YOLO 是否开启（会话级；Gateway 侧是内存态，重启即清） */
   @State yoloOn: boolean = false;
+  /**
+   * S45-A：正在执行的工具列表（进度条数据源）。
+   * ⚠️ ArkTS 对数组内部元素修改不敏感 → 每次变更都**整体替换数组**触发刷新。
+   */
+  @State toolProgress: ToolProgressItem[] = [];
   @State tempApiKey: string = '';
   @State networkMode: string = '检测中...';
   // S7：审批状态（showDialog/approveRunId/approveCommand/approvePatterns/
@@ -271,6 +278,70 @@ struct ChatPage {
       // S9：未读角标 +1（服务端已落库，这里只做本地即时反馈）
       notifyService.bumpUnread();
     };
+    // S45-A：工具进度 —— running 加入列表 / completed 移除 / stream_end 全清
+    hooks.onProgress = (msg: WsMessage): void => {
+      const status: string = (msg.status as string) ?? '';
+      if (status === 'stream_end') {
+        this.toolProgress = [];            // 兜底①：流结束清空
+        return;
+      }
+      const id: string = (msg.toolCallId as string) ?? '';
+      if (status === 'completed') {
+        // S45-A3: 不删除，标记完成（保留在原位）
+        const marked: ToolProgressItem[] = [];
+        for (const it of this.toolProgress) {
+          if (it.id === id) {
+            const copy: ToolProgressItem = new ToolProgressItem();
+            copy.id = it.id;
+            copy.tool = it.tool;
+            copy.label = it.label;
+            copy.emoji = it.emoji;
+            copy.at = it.at;
+            copy.index = it.index;
+            copy.done = true;
+            marked.push(copy);
+          } else {
+            marked.push(it);
+          }
+        }
+        this.toolProgress = marked;        // 整体替换触发刷新
+        return;
+      }
+      // running：同一 id 已在列表则更新，否则追加
+      const item: ToolProgressItem = new ToolProgressItem();
+      item.id = id;
+      item.tool = (msg.tool as string) ?? '';
+      item.label = (msg.label as string) ?? '';
+      item.emoji = (msg.emoji as string) ?? '';
+      item.at = Date.now();
+      item.index = (msg.index as number) ?? 0;
+      item.done = false;
+
+      const next: ToolProgressItem[] = [];
+      let replaced: boolean = false;
+      for (const it of this.toolProgress) {
+        if (it.id === id) {
+          next.push(item);
+          replaced = true;
+        } else {
+          next.push(it);
+        }
+      }
+      if (!replaced) {
+        next.push(item);
+      }
+      // 兜底③：剔除超过 60 秒没更新的（防某条进度没等到 completed 一直挂着）
+      // S45-A3: 已完成（done）的永久保留，不受超时影响 —— 用户要求完成后一直显示
+      const now: number = Date.now();
+      const fresh: ToolProgressItem[] = [];
+      for (const it of next) {
+        if (it.done || now - it.at < 60000) {
+          fresh.push(it);
+        }
+      }
+      this.toolProgress = fresh;
+    };
+
     hooks.onApprove = (msg: WsMessage): void => {
       this.handleApproveRequest(msg);
     };
@@ -763,9 +834,16 @@ struct ChatPage {
             }
           }, (message: ChatMessage, index: number) => `${index}-${message.content.length}-${message.content.substring(0, 16)}`)
 
-          // 流式消息气泡（⚠️ @Link 绑定，@Prop 在 ListItem 内不会更新）
+          // 流式消息气泡 + 工具进度
+          // ⚠️ ListItem 只能有**一个**子组件 —— 所以进度条和气泡必须包在 Column 里
+          //    （直接并列会报 10905220: The 'ListItem' component can have only one child component）
           ListItem() {
-            StreamingBubble({ streamContent: $streamContent })
+            Column() {
+              // S45-A：工具执行进度（在流式气泡上方；无活跃工具时自身不渲染）
+              ToolProgressBar({ items: this.toolProgress })
+              StreamingBubble({ streamContent: $streamContent })
+            }
+            .width('100%')
           }
           .visibility(this.isStreaming ? Visibility.Visible : Visibility.None)
         }
@@ -945,7 +1023,15 @@ struct ChatPage {
           if (m.content.trim().length === 0) {
             continue;
           }
-          list.push({ role: m.role, content: m.content });
+          // S45-B3：**必须带 createdAt** —— 此前只映射 role/content，
+          //   导致切会话（本地无缓存 → 从服务端拉历史）后所有消息都没有时间戳。
+          //   ⚠️ 单位：服务端 created_at 是**秒级**，ChatMessage.createdAt 是毫秒 → ×1000。
+          const sec: number = m.createdAt;
+          list.push({
+            role: m.role,
+            content: m.content,
+            createdAt: sec > 0 ? sec * 1000 : undefined,
+          });
         }
       }
       chatService.setMessages(list);
