@@ -22,6 +22,16 @@ import { MsgMetrics } from '../models/ChatModels.ets';
 // ── 时间常量：数值长期调优得出，搬迁时一字不改 ──
 const STALL_TIMEOUT: number = 20000;      // 流式停滞 20s → 主动请求续流
 /**
+ * 有活跃工具时用的停滞阈值（10 分钟）。
+ *
+ * 单次工具执行（编译 / 抓取 / 长 sleep）耗时可能远超 20s，且期间**没有任何
+ * 事件到达**，用 20s 判停滞必然误判 —— 实测 sleep 65 就会触发
+ * `streamStallTimer: no tokens for 20s`（见 notifyActivity 注释）。
+ * 语义上「工具在跑」= 「流是活的」。极端情况（工具永不返回）由服务端
+ * 120s 空闲超时兜底，不会真正挂死。
+ */
+const TOOL_ACTIVE_STALL_TIMEOUT: number = 600000;
+/**
  * 新会话首条消息的停滞窗口。
  *
  * ⚠️ 为什么要单独给一个更长的值（实测数据）：
@@ -86,6 +96,8 @@ export class ChatStreamEngine {
   private pendingIndicator: boolean = false;
 
   private stallTimer: number = NO_TIMER;
+  /** begin 时传入的停滞判定窗口；notifyActivity 重装计时器时复用 */
+  private stallTimeoutMs: number = STALL_TIMEOUT;
   private syncRetryTimer: number = NO_TIMER;
   private syncRetryCount: number = 0;
   private resumeTimer: number = NO_TIMER;
@@ -126,17 +138,53 @@ export class ChatStreamEngine {
   public begin(stallTimeoutMs: number = STALL_TIMEOUT): void {
     this.isStreaming = true;
     this.streamContent = '';
+    this.stallTimeoutMs = stallTimeoutMs;
+    this.armStallTimer();
+    this.cb.onStreamStart();
+  }
+
+  /**
+   * 安装（或重装）停滞计时器。begin 与 notifyActivity 共用。
+   *
+   * 语义：距离**上次有任何活动**超过 stallTimeoutMs 仍无 token → 请求 sync_pending。
+   */
+  private armStallTimer(): void {
     this.clearStallTimer();
+    const ms: number = this.stallTimeoutMs;
     // 流式回复停顿时长超过窗口仍无 token 则主动请求 sync_pending
     this.stallTimer = this.clock.setTimeout((): void => {
       this.stallTimer = NO_TIMER;
       if (this.isStreaming) {
-        console.info('streamStallTimer: no tokens for ' + (stallTimeoutMs / 1000)
+        console.info('streamStallTimer: no tokens for ' + (ms / 1000)
           + 's, requesting sync_pending');
         this.cb.onSyncNeeded(this.sessionId, this.lastSeq);
       }
-    }, stallTimeoutMs);
-    this.cb.onStreamStart();
+    }, ms);
+  }
+
+  /**
+   * 工具进度信号到达时调用 —— 重装停滞计时器。
+   *
+   * ⚠️ 两个层次的问题，只做第一个不够（实测验证过）：
+   *   ① chat_progress 走 WsBridgeHooks.onProgress **绕过 engine**，
+   *      不会像 chat_token 那样重置 stallTimer；
+   *   ② **更关键**：单次工具执行的耗时（如 sleep 65）**本身就可能超过
+   *      停滞阈值**，期间不会有任何事件到达 —— 所以"事件到达时重置"仍然会误判。
+   *      实测：21:33:5x 收到 running 并重置，21:34:10 照样触发
+   *      `streamStallTimer: no tokens for 20s`。
+   *
+   * 因此：**有活跃工具时改用大幅延长的阈值** ——
+   *   语义上"工具在跑"就等价于"流是活的"，不该按 token 间隔判停滞。
+   *   极端情况（工具永不返回）仍有服务端 120s 空闲超时兜底。
+   *
+   * @param hasActiveTool 当前是否仍有未完成的工具（由页面根据 toolProgress 判定）
+   */
+  public notifyActivity(hasActiveTool: boolean): void {
+    if (!this.isStreaming) {
+      return;
+    }
+    this.stallTimeoutMs = hasActiveTool ? TOOL_ACTIVE_STALL_TIMEOUT : STALL_TIMEOUT;
+    this.armStallTimer();
   }
 
   public getStreamContent(): string {
@@ -170,6 +218,15 @@ export class ChatStreamEngine {
     // 收到第一个 token 即停止 sync 重试（避免 retry 再发一次 sync 导致重复回复）
     if (this.pendingIndicator) {
       this.stopSyncRetry();
+    }
+    // 收到 token = 流确实在推进 —— 补齐 isStreaming 的恢复路径。
+    //   ⚠️ cb.onStreamStart() 全项目只在 begin()（用户发新消息）里调用一次，
+    //   而切会话会把 ChatPage 的 isStreaming 置 false 且**没有任何恢复路径** ——
+    //   结果切走再切回时，进度条和流式气泡都消失（评审 REV-01 的一部分）。
+    //   这里让"收到 token"本身就能把 UI 状态拉回来。
+    if (!this.isStreaming) {
+      this.isStreaming = true;
+      this.cb.onStreamStart();
     }
     // 收到 token 即清除停滞超时（流正常进行）
     this.clearStallTimer();
@@ -217,6 +274,10 @@ export class ChatStreamEngine {
       this.pendingIndicator = false;
     }
     this.isStreaming = true; // 让流式气泡显示
+    // 评审 REV-07 附带：同步通知页面，避免「engine 认为在流式、页面认为不在」的状态不一致。
+    //   （同类问题在 handleToken 也补过一次 —— 那条覆盖"收到 token"的路径，这条覆盖"仅有
+    //     stream_resume 通知、还没收到 token"的窗口。）
+    this.cb.onStreamStart();
     // 方案D：设 30 秒超时守卫生，超时后未收到 chat_done 则重启 retry 轮询
     this.clearResumeTimer();
     this.resumeTimer = this.clock.setTimeout((): void => {

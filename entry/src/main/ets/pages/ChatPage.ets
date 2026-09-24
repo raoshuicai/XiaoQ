@@ -38,7 +38,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.0';
+const APP_VERSION: string = '3.9.7';
 
 @Entry
 @Component
@@ -64,6 +64,17 @@ struct ChatPage {
    * ⚠️ ArkTS 对数组内部元素修改不敏感 → 每次变更都**整体替换数组**触发刷新。
    */
   @State toolProgress: ToolProgressItem[] = [];
+  /**
+   * 按会话缓存工具进度：切走时保存、切回时恢复。
+   *
+   * ⚠️ 为什么不能简单清空：进度是**增量事件流**（running/completed 逐条推送），
+   *   清掉后无法重建 —— 切回时若工具正在执行（如 sleep 50 跑到一半），
+   *   没有任何新事件可依赖，进度条就永久空白（实测复现）。
+   *   所以防残留的正确做法是「按会话保存/切换」，而不是「丢弃」。
+   */
+  private progressCache: Map<string, ToolProgressItem[]> = new Map();
+  /** 上一次的会话 id —— @Watch 触发时 activeSessionId 已是新值，旧值需自行记录 */
+  private prevSessionId: string = '';
   @State tempApiKey: string = '';
   @State networkMode: string = '检测中...';
   // S7：审批状态（showDialog/approveRunId/approveCommand/approvePatterns/
@@ -266,6 +277,33 @@ struct ChatPage {
    *
    * 处理逻辑（token 累积 / seq / 计时器 / 占位符）暂时留在本页，S3 搬进 ChatStreamEngine。
    */
+  /**
+   * 是否有未完成的工具。
+   *
+   * 用途：工具在跑 = 流是活的 —— 停滞检测据此放宽阈值。
+   * 否则单次长工具（sleep 65 / 编译 / 抓取）执行期间没有任何事件到达，
+   * 会被 20s 停滞检测误判为断流（实测触发过 streamStallTimer）。
+   */
+  private hasActiveTool(): boolean {
+    for (const it of this.toolProgress) {
+      if (!it.done) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 把当前会话的进度写进按会话缓存（切走时 onSessionChanged 也用它保存）。
+   * 之所以每处进度变更都要同步：切回时只靠缓存恢复，缓存不新就会显示过期进度。
+   */
+  private cacheProgress(): void {
+    const sid: string = this.activeSessionId;
+    if (sid.length > 0) {
+      this.progressCache.set(sid, this.toolProgress);
+    }
+  }
+
   private setupWebSocket(baseUrl: string): void {
     // S7：9 个事件订阅 + 8 个协议处理方法全部收归 ChatWsBridge
     const hooks: WsBridgeHooks = new WsBridgeHooks();
@@ -280,9 +318,18 @@ struct ChatPage {
     };
     // S45-A：工具进度 —— running 加入列表 / completed 移除 / stream_end 全清
     hooks.onProgress = (msg: WsMessage): void => {
+      // 评审 REV-04：跨会话隔离必须闭环 —— 非当前会话的进度不渲染（防 A 会话进度刷到 B 会话）
+      const sid: string = (msg.session_id as string) ?? '';
+      if (sid.length > 0 && sid !== this.activeSessionId) {
+        // 保留一条简短日志：排查"进度不显示"时，首先要知道是"没收到帧"还是"被会话过滤掉了"
+        console.info('[Prog] drop: sid=' + sid + ' active=' + this.activeSessionId);
+        return;
+      }
       const status: string = (msg.status as string) ?? '';
       if (status === 'stream_end') {
         this.toolProgress = [];            // 兜底①：流结束清空
+        this.cacheProgress();
+        this.engine?.notifyActivity(false);
         return;
       }
       const id: string = (msg.toolCallId as string) ?? '';
@@ -305,6 +352,8 @@ struct ChatPage {
           }
         }
         this.toolProgress = marked;        // 整体替换触发刷新
+        this.cacheProgress();
+        this.engine?.notifyActivity(this.hasActiveTool());
         return;
       }
       // running：同一 id 已在列表则更新，否则追加
@@ -340,6 +389,12 @@ struct ChatPage {
         }
       }
       this.toolProgress = fresh;
+      this.cacheProgress();
+      // 方案A：通知 engine 当前是否仍有工具在跑 → 停滞检测据此选阈值。
+      //   ⚠️ 必须在 toolProgress 更新**之后**调用（按最新状态判定）。
+      //   仅"事件到达时重置计时器"不够 —— 单次工具本身耗时可能就超过停滞阈值，
+      //   期间无任何事件，实测 sleep 65 仍触发过 streamStallTimer。
+      this.engine?.notifyActivity(this.hasActiveTool());
     };
 
     hooks.onApprove = (msg: WsMessage): void => {
@@ -839,13 +894,23 @@ struct ChatPage {
           //    （直接并列会报 10905220: The 'ListItem' component can have only one child component）
           ListItem() {
             Column() {
-              // S45-A：工具执行进度（在流式气泡上方；无活跃工具时自身不渲染）
-              ToolProgressBar({ items: this.toolProgress })
-              StreamingBubble({ streamContent: $streamContent })
+              // 评审 REV-01：两个组件**各自判断**渲染条件，不共用一个开关。
+              //   ⚠️ 不能简单放宽外层 visibility 为「或」——StreamingBubble 在
+              //      streamContent 为空时会渲染 LoadingProgress 转圈，而 onSessionChanged
+              //      恰好把 streamContent 置空，切回会话就会出现「空白+永久转圈」的幽灵气泡。
+              if (this.toolProgress.length > 0) {
+                ToolProgressBar({ items: this.toolProgress })
+              }
+              if (this.isStreaming || this.streamContent.length > 0) {
+                StreamingBubble({ streamContent: $streamContent })
+              }
             }
             .width('100%')
           }
-          .visibility(this.isStreaming ? Visibility.Visible : Visibility.None)
+          .visibility(
+            (this.isStreaming || this.streamContent.length > 0 || this.toolProgress.length > 0)
+              ? Visibility.Visible : Visibility.None
+          )
         }
         .width('100%')
         .layoutWeight(1)
@@ -981,6 +1046,14 @@ struct ChatPage {
       return;
     }
     const sid: string = this.activeSessionId;
+    // ① 切走前：保存**上一个会话**的进度（进度是增量事件流，清空后无法重建）
+    if (this.prevSessionId.length > 0) {
+      this.progressCache.set(this.prevSessionId, this.toolProgress);
+    }
+    // ② 切过来：恢复**目标会话**的进度（无缓存则为空 —— 新会话本就没有进度）
+    const cached: ToolProgressItem[] | undefined = this.progressCache.get(sid);
+    this.toolProgress = cached !== undefined ? cached : [];
+    this.prevSessionId = sid;
     this.engine?.bindSession(sid);
     chatService.bind(this.appCtx, sid);
     this.streamContent = '';

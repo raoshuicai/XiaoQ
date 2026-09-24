@@ -36,7 +36,7 @@ export interface WsMessage {
   message?: string;       // chat_error 信息
   // 聊天请求
   messages?: Object[];    // 消息历史
-  session_id?: string;    // 会话ID（当前语义 = 固定的 device_id，见方案 V2 §3 决策 1）
+  session_id?: string;    // 会话 ID（S12 起为 app-{uuid} 形式的真实会话，不再是 device_id）
   // 授权卡片（新格式）
   run_id?: string;        // Hermes 运行ID
   command?: string;       // 需要授权的命令
