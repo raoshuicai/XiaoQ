@@ -55,6 +55,7 @@ export class TokenService {
     today.inputTokens = TokenService.num(t, 'input_tokens');
     today.outputTokens = TokenService.num(t, 'output_tokens');
     today.totalTokens = TokenService.num(t, 'total_tokens');
+    today.cacheTokens = TokenService.num(t, 'cache_tokens');
     out.today = today;
 
     const m: Record<string, Object> = (raw['this_month'] as Record<string, Object>) ?? {};

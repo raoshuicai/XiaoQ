@@ -19,6 +19,7 @@ export class TokenTrio {
 
 /** 今日用量 */
 export class TodayStats extends TokenTrio {
+  cacheTokens: number = 0;
 }
 
 /** 本月用量（比 TokenTrio 多出会话数/活跃天数/日均/预测） */

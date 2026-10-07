@@ -207,9 +207,10 @@ struct TokensPage {
               this.SummaryCard(
                 '今日',
                 formatTokens(this.summary.today.totalTokens) + ' tokens',
-                '输入 ' + formatTokens(this.summary.today.inputTokens)
-                + ' · 输出 ' + formatTokens(this.summary.today.outputTokens),
-                '',
+                '基础 ' + formatTokens(this.summary.today.inputTokens + this.summary.today.outputTokens)
+                + '（入 ' + formatTokens(this.summary.today.inputTokens)
+                + ' · 出 ' + formatTokens(this.summary.today.outputTokens) + '）',
+                '缓存读 ' + formatTokens(this.summary.today.cacheTokens),
                 $r('app.color.brand')
               )
 
