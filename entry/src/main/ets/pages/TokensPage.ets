@@ -29,12 +29,23 @@ struct TokensPage {
   @State modelRows: ModelStats[] = [];
   @State dailyMax: number = 1;
   @State modelMax: number = 1;
+  // HOTFIX 20261007: APP 回前台时 EntryAbility 写入时间戳, @Watch 触发自动刷新。
+  //   修复「停在 Token 页聊天后回来看, 今日/本月/累计一直不刷新」——
+  //   onPageShow 只在 router 返回时触发, 覆盖不了后台回前台场景。
+  @StorageLink('xiaoq_foreground_ts') @Watch('onForegroundTs') foregroundTs: number = 0;
 
   @StorageLink('apiKey') apiKey: string = '';
 
   onPageShow(): void {
     // 页面复用时也要刷新（用户可能刚聊完天回来看用量）
     this.loadAll();
+  }
+
+  private onForegroundTs(): void {
+    // 仅当页面在栈顶可见时才有意义; 简化处理: 时间戳变化即刷新(页面隐藏时刷新也无害)
+    if (this.foregroundTs > 0) {
+      this.loadAll();
+    }
   }
 
   aboutToAppear(): void {
@@ -234,6 +245,12 @@ struct TokensPage {
                 Row() {
                   ForEach(this.daily, (p: DailyPoint) => {
                     Column() {
+                      // 柱顶数值标注（纵轴读数，方便直接读取结果）
+                      Text(formatTokens(p.totalTokens))
+                        .fontSize(9)
+                        .fontColor($r('app.color.text_tertiary'))
+                        .margin({ bottom: 2 })
+                        .maxLines(1)
                       // 柱高按当日/最大值比例（最小 4，保证 0 也看得见基线）
                       Column()
                         .width(18)
@@ -251,7 +268,7 @@ struct TokensPage {
                   })
                 }
                 .width('100%')
-                .height(110)
+                .height(130)
                 .alignItems(VerticalAlign.Bottom)
               }
               .width('100%')

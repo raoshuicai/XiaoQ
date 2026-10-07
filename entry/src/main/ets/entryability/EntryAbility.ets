@@ -89,6 +89,8 @@ export default class EntryAbility extends UIAbility {
   }
 
   onForeground(): void {
+    // Token 用量页联动：前台时间戳变化触发自动刷新（修复切后台回来数字不更新）
+    AppStorage.setOrCreate('xiaoq_foreground_ts', Date.now());
     // V4-A8：后台冻结唤醒后立即刷新跨天键（与 ChatPage.onPageShow 双保险；
     //   键名与 ChatPage 的 TODAY_KEY 保持一致）
     try {
