@@ -102,8 +102,14 @@ export class ChatWsBridge {
     this.unsubs.push(eventBus.on(Events.CHAT_STARTED, (m: WsMessage): void => {
       // V4-A5：归属校验（旧会话的 chat_started 不得覆盖当前会话 ID）
       const eng = getEngine();
-      if (eng !== null && eng !== undefined && m.session_id !== undefined && m.session_id !== ''
-          && m.session_id !== eng.getSessionId()) {
+      // HOTFIX 20261007: new session -> engine.sessionId is "" until server assigns.
+      //   chat_started with the NEW id must pass through and bind, not be dropped as
+      //   cross-session; otherwise tokens/done are all dropped and UI spins forever.
+      //   Rule: engine sessionId == "" means "awaiting server assignment" -> allow.
+      const engSid = (eng !== null && eng !== undefined) ? eng.getSessionId() : "";
+      if (eng !== null && eng !== undefined && engSid !== ""
+          && m.session_id !== undefined && m.session_id !== ""
+          && m.session_id !== engSid) {
         console.warn('drop cross-session chat_started: ' + m.session_id
           + ' (current ' + eng.getSessionId() + ')');
         return;

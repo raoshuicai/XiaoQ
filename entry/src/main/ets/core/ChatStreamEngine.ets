@@ -208,7 +208,9 @@ export class ChatStreamEngine {
   public handleToken(content: string, seq: number | undefined, msgSessionId: string): void {
     // 跨会话 token 丢弃：切会话后旧会话的补发 token 不得混进当前会话
     // （方案 V2 §3 决策 1）
-    if (msgSessionId !== '' && msgSessionId !== this.sessionId) {
+    // HOTFIX 20261007: this.sessionId === '' 表示新会话等待服务端分配——
+    //   此时服务端带新 id 的帧必须接纳（chat_started 会绑定），否则全部丢弃导致无限转圈
+    if (msgSessionId !== '' && this.sessionId !== '' && msgSessionId !== this.sessionId) {
       return;
     }
     // 记录最后收到的 seq（支持断点续流）
@@ -247,7 +249,8 @@ export class ChatStreamEngine {
    */
   public handleDone(metrics?: MsgMetrics, msgSessionId: string = ''): void {
     // V4-A4：跨会话归属校验（与 handleToken 同模式，空串跳过兼容旧服务端）
-    if (msgSessionId !== '' && msgSessionId !== this.sessionId) {
+    // HOTFIX 20261007: this.sessionId === '' = 新会话等待绑定，放行（同 handleToken）
+    if (msgSessionId !== '' && this.sessionId !== '' && msgSessionId !== this.sessionId) {
       console.warn('drop cross-session handleDone: ' + msgSessionId + ' (current ' + this.sessionId + ')');
       return;
     }
@@ -264,7 +267,8 @@ export class ChatStreamEngine {
   /** chat_error：流失败 */
   public handleError(message: string, msgSessionId: string = ''): void {
     // V4-A4：跨会话归属校验
-    if (msgSessionId !== '' && msgSessionId !== this.sessionId) {
+    // HOTFIX 20261007: this.sessionId === '' = 新会话等待绑定，放行（同 handleToken）
+    if (msgSessionId !== '' && this.sessionId !== '' && msgSessionId !== this.sessionId) {
       console.warn('drop cross-session handleError: ' + msgSessionId + ' (current ' + this.sessionId + ')');
       return;
     }

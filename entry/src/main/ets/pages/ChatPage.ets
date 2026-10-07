@@ -323,7 +323,8 @@ struct ChatPage {
     hooks.onProgress = (msg: WsMessage): void => {
       // 评审 REV-04：跨会话隔离必须闭环 —— 非当前会话的进度不渲染（防 A 会话进度刷到 B 会话）
       const sid: string = (msg.session_id as string) ?? '';
-      if (sid.length > 0 && sid !== this.activeSessionId) {
+      // HOTFIX 20261007: activeSessionId === '' = 新会话等待服务端分配, 放行(同 handleToken)
+      if (sid.length > 0 && this.activeSessionId.length > 0 && sid !== this.activeSessionId) {
         // 保留一条简短日志：排查"进度不显示"时，首先要知道是"没收到帧"还是"被会话过滤掉了"
         console.info('[Prog] drop: sid=' + sid + ' active=' + this.activeSessionId);
         return;
