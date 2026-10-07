@@ -245,7 +245,12 @@ export class ChatStreamEngine {
    * isStreaming / isLoading（原实现在 streamContent 为空时同样要复位这些 UI 状态）。
    * 是否落库交由页面按内容长度自行判断。
    */
-  public handleDone(metrics?: MsgMetrics): void {
+  public handleDone(metrics?: MsgMetrics, msgSessionId: string = ''): void {
+    // V4-A4：跨会话归属校验（与 handleToken 同模式，空串跳过兼容旧服务端）
+    if (msgSessionId !== '' && msgSessionId !== this.sessionId) {
+      console.warn('drop cross-session handleDone: ' + msgSessionId + ' (current ' + this.sessionId + ')');
+      return;
+    }
     const finalContent: string = this.streamContent;
     this.streamContent = '';
     this.isStreaming = false;
@@ -257,7 +262,12 @@ export class ChatStreamEngine {
   }
 
   /** chat_error：流失败 */
-  public handleError(message: string): void {
+  public handleError(message: string, msgSessionId: string = ''): void {
+    // V4-A4：跨会话归属校验
+    if (msgSessionId !== '' && msgSessionId !== this.sessionId) {
+      console.warn('drop cross-session handleError: ' + msgSessionId + ' (current ' + this.sessionId + ')');
+      return;
+    }
     this.isStreaming = false;
     this.clearStallTimer();
     this.clearResumeTimer();
@@ -266,7 +276,12 @@ export class ChatStreamEngine {
   }
 
   /** sync_resume：服务端通知流已恢复，后续 token 会实时推送 */
-  public handleSyncResume(caughtUp: number): void {
+  public handleSyncResume(caughtUp: number, msgSessionId: string = ''): void {
+    // V4-A4：跨会话归属校验
+    if (msgSessionId !== '' && msgSessionId !== this.sessionId) {
+      console.warn('drop cross-session handleSyncResume: ' + msgSessionId + ' (current ' + this.sessionId + ')');
+      return;
+    }
     console.info('sync_resume: stream resumed, caught_up=' + caughtUp);
     // 如果有已累积的 streamContent，替换掉恢复提示
     if (this.streamContent.length > 0) {
@@ -290,7 +305,12 @@ export class ChatStreamEngine {
   }
 
   /** sync_pending_response：服务端补发了离线缓存内容 */
-  public handleSyncPending(content: string, streamMissing: boolean = false): void {
+  public handleSyncPending(content: string, streamMissing: boolean = false, msgSessionId: string = ''): void {
+    // V4-A4：跨会话归属校验
+    if (msgSessionId !== '' && msgSessionId !== this.sessionId) {
+      console.warn('drop cross-session handleSyncPending: ' + msgSessionId + ' (current ' + this.sessionId + ')');
+      return;
+    }
     if (content.length > 0) {
       this.cb.onIndicatorReplace(content);
       this.pendingIndicator = false;
@@ -330,8 +350,10 @@ export class ChatStreamEngine {
   /** WS 连上：若存在未恢复的流，主动请求续流 */
   public handleConnected(): void {
     console.info('WS connected');
-    // 只对"流中断未恢复"的会话发送同步请求（避免已完成流重复回放）
-    if (this.pendingIndicator) {
+    // V4-A10：条件放宽为 pendingIndicator || isStreaming（防御性冗余）。
+    //   on('close') 路径已能置位 pendingIndicator，放宽防某些平台 close 事件延迟；
+    //   isStreaming 时重连也要补 sync（可能漏了中间 token）。
+    if (this.pendingIndicator || this.isStreaming) {
       this.cb.onSyncNeeded(this.sessionId, this.lastSeq);
       this.startSyncRetry();
     }

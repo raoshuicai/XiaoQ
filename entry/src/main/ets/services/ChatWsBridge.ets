@@ -54,12 +54,13 @@ export class ChatWsBridge {
     // 或明确告知该会话已无活跃流（stream_missing）→ 结束等待
     this.unsubs.push(eventBus.on(Events.CHAT_SYNC_PENDING, (m: WsMessage): void => {
       // 内容为空且非 stream_missing → 服务器还没准备好，engine 的 retry timer 会继续重试
-      getEngine()?.handleSyncPending(m.content ?? '', m.stream_missing === true);
+      // V4-A5：传 session_id 做归属校验（不匹配被 engine 丢弃）
+      getEngine()?.handleSyncPending(m.content ?? '', m.stream_missing === true, m.session_id ?? '');
     }));
 
     // sync_resume：服务端通知流已恢复，后续 token 会实时推送
     this.unsubs.push(eventBus.on(Events.CHAT_SYNC_RESUME, (m: WsMessage): void => {
-      getEngine()?.handleSyncResume(m.caught_up ?? 0);
+      getEngine()?.handleSyncResume(m.caught_up ?? 0, m.session_id ?? '');
     }));
 
     // notification：需要插进消息列表，交给页面
@@ -78,12 +79,13 @@ export class ChatWsBridge {
     // chat_done：流式完成（落库与 UI 复位在 engine 的回调里）
     this.unsubs.push(eventBus.on(Events.CHAT_DONE, (m: WsMessage): void => {
       // S41：chat_done 现在带 metrics（TTFT / TPS / KV 命中）
-      getEngine()?.handleDone(m.metrics);
+      // V4-A5：传 session_id 做归属校验（上一会话的 chat_done 不得掐死当前流式 UI）
+      getEngine()?.handleDone(m.metrics, m.session_id ?? '');
     }));
 
     // chat_error：流式失败（UI 展示在 engine 的回调里）
     this.unsubs.push(eventBus.on(Events.CHAT_ERROR, (m: WsMessage): void => {
-      getEngine()?.handleError(m.message !== undefined ? m.message : '流式回复失败');
+      getEngine()?.handleError(m.message !== undefined ? m.message : '流式回复失败', m.session_id ?? '');
     }));
 
     // 审批请求：交给全局审批中心
@@ -98,7 +100,21 @@ export class ChatWsBridge {
 
     // S12：本轮所属会话确认（新建会话时 APP 据此记住 ID）
     this.unsubs.push(eventBus.on(Events.CHAT_STARTED, (m: WsMessage): void => {
+      // V4-A5：归属校验（旧会话的 chat_started 不得覆盖当前会话 ID）
+      const eng = getEngine();
+      if (eng !== null && eng !== undefined && m.session_id !== undefined && m.session_id !== ''
+          && m.session_id !== eng.getSessionId()) {
+        console.warn('drop cross-session chat_started: ' + m.session_id
+          + ' (current ' + eng.getSessionId() + ')');
+        return;
+      }
       hooks.onChatStarted(m);
+    }));
+
+    // V4-A5：chat_thinking 接收端（服务端 S6 会下发；空消费，只为不漏帧 + 可观测）
+    this.unsubs.push(eventBus.on(Events.CHAT_THINKING, (m: WsMessage): void => {
+      // 暂无 UI 呈现需求：接收即完成归属链路（WsService.dispatch → 此处），
+      // 后续要显示「思考中」动效时在这里挂 hooks.onThinking 即可。
     }));
 
     // WS 连上/断开：交给 engine 判断是否需要续流 / 插恢复占位符

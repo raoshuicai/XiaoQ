@@ -322,7 +322,7 @@ export class ChatService {
 
   // ─────────────────────────── 内部工具 ───────────────────────────
 
-  private newMsgId(): string {
+  public newMsgId(): string {  // V4-A6：ChatPage 生成 client_msg_id 复用此格式（m-<毫秒>-<随机>）
     return 'm-' + Date.now().toString() + '-' + Math.floor(Math.random() * 100000).toString();
   }
 

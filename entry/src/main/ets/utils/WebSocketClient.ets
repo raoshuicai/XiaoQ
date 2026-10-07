@@ -3,6 +3,10 @@ import { WsMessage, WsCallback } from '../models/WsModels.ets';
 
 const WS_PING_INTERVAL: number = 15000;  // 15秒心跳（原30秒，隧道不稳定需更快检测断线）
 const WS_RECONNECT_DELAY: number = 2000; // 断线重连延时2秒（原5秒）
+// V4-A1（N5）：看门狗阈值 90s ≈ 6 个 ping 周期，对齐 ChatStreamEngine stall 下限。
+//   路线一不做 create_task，长工具静默期服务端不回 pong，60s 会误重连（M-4 拦的正是这个）。
+//   一切入站帧（token/progress/pong/…）都刷新 lastAliveAt → 静默期靠 chat_progress 续命。
+const WS_ALIVE_TIMEOUT: number = 90000;
 
 export class WebSocketClient {
   private ws: webSocket.WebSocket | null = null;
@@ -16,6 +20,7 @@ export class WebSocketClient {
   private onDisconnect: (() => void) | undefined = undefined;
   private disconnectNotified: boolean = false;  // 防重入标志位（issue #14）
   private pendingQueue: WsMessage[] = [];  // WS 未连接时暂存消息，连上后自动排空
+  private lastAliveAt: number = 0;  // V4-A1：最近一次入站时间（任何帧都刷新，含 pong）
 
   constructor(clientId: string) {
     this.clientId = clientId;
@@ -45,6 +50,7 @@ export class WebSocketClient {
 
       this.ws.on('open', () => {
         this.connected = true;
+        this.lastAliveAt = Date.now();  // V4-A1
         if (this.onConnect !== undefined) {
           this.onConnect();
         }
@@ -58,6 +64,7 @@ export class WebSocketClient {
           console.error('WS message error: ' + err);
           return;
         }
+        this.lastAliveAt = Date.now();  // V4-A1：任何入站都刷新（pong/token/progress 均算存活）
         try {
           const msg: WsMessage = JSON.parse(data as string) as WsMessage;
           if (msg.type === 'pong') {
@@ -104,11 +111,14 @@ export class WebSocketClient {
   }
 
   public send(msg: WsMessage): void {
+    // V4-A2：出站闸门只看「真未连接」，不设健康门槛
+    //   （服务端跑长工具时入站静默 ≠ 连接坏，拦出站会把用户消息延迟 15s+）
     if (this.ws !== null && this.connected) {
       try {
         this.ws.send(JSON.stringify(msg));
       } catch (error) {
         console.error('WS send error: ' + error);
+        this.pendingQueue.push(msg);  // 发送异常 → 入队，重连后重发（幂等键保证不重复执行）
       }
     } else {
       // WS 未连接时入队，等待重连后自动排空
@@ -118,12 +128,35 @@ export class WebSocketClient {
   }
 
   public sendPing(): void {
-    this.send({ type: 'ping' });
+    // V4-A3：ping 永不入队（否则重连后一次性灌一批过期 ping 给服务端）
+    if (this.ws !== null && this.connected) {
+      try {
+        this.ws.send(JSON.stringify({ type: 'ping' }));
+      } catch (error) {
+        // 忽略：ping 失败由看门狗的 lastAliveAt 判定处理
+      }
+    }
   }
 
   private startPing(): void {
     this.stopPing();
     this.pingTimer = setInterval(() => {
+      // V4-A1：看门狗 —— 判据「sendPing() 不抛异常 + 超 WS_ALIVE_TIMEOUT 无任何入站」
+      //   半开连接（切网后旧 socket 不产生 close/error）由这里兜底：强制关底层 socket，
+      //   让 on('close') 走正常路径 → onDisconnect → 重连 → sync_pending 续流。
+      //   ⚠️ 不调 this.close()：它会 off 掉监听 → onDisconnect 不触发 → 重连后不发 sync_pending。
+      const idle: number = Date.now() - this.lastAliveAt;
+      if (this.lastAliveAt > 0 && idle > WS_ALIVE_TIMEOUT) {
+        console.warn('WS half-open suspected (idle=' + idle + 'ms), forcing close to reconnect');
+        if (this.ws !== null) {
+          try {
+            this.ws.close();
+          } catch (error) {
+            console.error('WS force close failed: ' + error);
+          }
+        }
+        return;
+      }
       this.sendPing();
     }, WS_PING_INTERVAL);
   }

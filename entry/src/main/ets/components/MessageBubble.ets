@@ -20,23 +20,22 @@ import { ChatMessage, MsgMetrics } from '../models/ChatModels.ets';
  */
 const USER_NAME: string = '阿水';
 
-function fmtMsgTime(ms: number | undefined): string {
+function fmtMsgTime(ms: number | undefined, todayKey: string): string {
+  // V4-A7：跨天判断不再用 new Date()（时间流逝不触发重绘，#IKJRZG 根因），
+  //   改比对 todayKey（AppStorage 驱动，跨天时 @StorageProp 自动刷新本组件）。
   if (ms === undefined || ms <= 0) {
     return '';
   }
   const d: Date = new Date(ms);
-  const now: Date = new Date();
   const pad = (n: number): string => (n < 10 ? '0' + n : String(n));
   const hhmm: string = pad(d.getHours()) + ':' + pad(d.getMinutes());
-  const sameDay: boolean = d.getFullYear() === now.getFullYear()
-    && d.getMonth() === now.getMonth()
-    && d.getDate() === now.getDate();
-  if (sameDay) {
+  const dKey: string = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  if (dKey === todayKey) {
     return hhmm;                                    // 当天：HH:MM
   }
   // S45-B3：非当天要带日期。跨年时再补上年份，避免 '09-22 06:57' 有歧义。
   const md: string = pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-  if (d.getFullYear() !== now.getFullYear()) {
+  if (String(d.getFullYear()) !== todayKey.substring(0, 4)) {
     return d.getFullYear().toString() + '-' + md + ' ' + hhmm;   // YYYY-MM-DD HH:MM
   }
   return md + ' ' + hhmm;                           // MM-DD HH:MM
@@ -72,6 +71,8 @@ function fmtMetrics(m: MsgMetrics | undefined): string {
 
 @Component
 export struct MessageBubble {
+  // V4-A7：跨天键（AppStorage 驱动重绘，绕开 ForEach 复用不刷新问题）
+  @StorageProp('xiaoq_chat_today_key') todayKey: string = '';
   @Prop message: ChatMessage;
   index: number = 0;
   /** 长按删除回调（父组件负责弹确认框） */
@@ -99,8 +100,8 @@ export struct MessageBubble {
             .fontColor($r('app.color.brand'))
             .fontWeight(FontWeight.Medium)
           // S21：时间信息（当天=时:分 / 非当天=月-日 时:分）
-          if (fmtMsgTime(this.message.createdAt).length > 0) {
-            Text(fmtMsgTime(this.message.createdAt))
+          if (fmtMsgTime(this.message.createdAt, this.todayKey).length > 0) {
+            Text(fmtMsgTime(this.message.createdAt, this.todayKey))
               .fontSize(11)
               .fontColor($r('app.color.text_tertiary'))
               .margin({ left: 8 })
@@ -109,7 +110,7 @@ export struct MessageBubble {
         .width('100%')
         .justifyContent(FlexAlign.Start)
         .margin({ bottom: 4 })
-      } else if (fmtMsgTime(this.message.createdAt).length > 0
+      } else if (fmtMsgTime(this.message.createdAt, this.todayKey).length > 0
                  || USER_NAME.length > 0) {
         // S45-B2：用户自己发的消息 —— 右对齐显示「阿水 + 时间」。
         // 需求原文："把时间显示在阿水右边"，与左侧「小Q + 时间」左右对称。
@@ -118,8 +119,8 @@ export struct MessageBubble {
             .fontSize(12)
             .fontColor($r('app.color.text_secondary'))
             .fontWeight(FontWeight.Medium)
-          if (fmtMsgTime(this.message.createdAt).length > 0) {
-            Text(fmtMsgTime(this.message.createdAt))
+          if (fmtMsgTime(this.message.createdAt, this.todayKey).length > 0) {
+            Text(fmtMsgTime(this.message.createdAt, this.todayKey))
               .fontSize(11)
               .fontColor($r('app.color.text_tertiary'))
               .margin({ left: 8 })

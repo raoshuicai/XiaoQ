@@ -38,7 +38,10 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.7';
+const APP_VERSION: string = '3.9.8';
+
+// V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
+const TODAY_KEY: string = 'xiaoq_chat_today_key';
 
 @Entry
 @Component
@@ -533,6 +536,8 @@ struct ChatPage {
   }
 
   aboutToAppear(): void {
+    // V4-A8：跨天检测启动（5 分钟定时器 + AppStorage 广播）
+    this.startDayCheck();
     // S3：创建流式状态机（回调实现见 buildStreamCallbacks）
     this.engine = new ChatStreamEngine(systemClock, this.buildStreamCallbacks());
     // 从Preferences加载持久化的API Key
@@ -650,6 +655,7 @@ struct ChatPage {
   }
 
   aboutToDisappear(): void {
+    this.stopDayCheck();            // V4-A8：onPageHide 不覆盖「页面被销毁」，两处都清
     this.teardownSubscriptions();   // S2：必须注销事件订阅，否则重复订阅会让消息翻倍
     this.engine?.dispose();         // S3：状态机清掉全部计时器
     this.engine = null;
@@ -663,6 +669,9 @@ struct ChatPage {
    */
   onPageShow(): void {
     this.pageVisible = true;
+    // V4-A8：后台冻结唤醒后立即刷新跨天键（定时器被冻结无法及时感知，必选项）
+    AppStorage.setOrCreate(TODAY_KEY, this.calcTodayKey());
+    this.startDayCheck();
     // S7：登记本页为「审批可展示页」——只有前台页面会渲染审批卡片
     approveService.setActivePage('chat');
     // S43：回前台时同步一次 YOLO 状态（Gateway 侧是内存态，重启会清）
@@ -740,8 +749,37 @@ struct ChatPage {
    */
   onPageHide(): void {
     this.pageVisible = false;
+    this.stopDayCheck();            // V4-A8：后台冻结定时器，清理防泄漏
     // S7：退出前台后不再渲染审批卡片（交给下一个前台页面）
     approveService.clearActivePage('chat');
+  }
+
+  // ─── V4-A8：跨天检测（MessageBubble / SessionService 的 todayKey 都由它驱动）───
+  private dayCheckTimer: number | undefined = undefined;
+
+  private calcTodayKey(): string {
+    const d: Date = new Date();
+    const pad = (n: number): string => (n < 10 ? '0' + n : String(n));
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+
+  private startDayCheck(): void {
+    this.stopDayCheck();
+    AppStorage.setOrCreate(TODAY_KEY, this.calcTodayKey());
+    this.dayCheckTimer = setInterval(() => {
+      const k: string = this.calcTodayKey();
+      if (k !== AppStorage.get<string>(TODAY_KEY)) {
+        console.info('day changed -> ' + k);
+        AppStorage.setOrCreate(TODAY_KEY, k);
+      }
+    }, 5 * 60 * 1000);
+  }
+
+  private stopDayCheck(): void {
+    if (this.dayCheckTimer !== undefined) {
+      clearInterval(this.dayCheckTimer);
+      this.dayCheckTimer = undefined;
+    }
   }
 
   private async saveSettings(): Promise<void> {
@@ -832,10 +870,14 @@ struct ChatPage {
 
     // 通过WebSocket发送流式聊天请求
     // S12：session_id 用「当前会话」而非 deviceId（空 = 让服务端新建）
+    // V4-A6：幂等键挂帧（N3）—— 每条新消息一律新 id；
+    //   未连接时本帧进 pendingQueue，重连排空天然复用同一 id（同帧重发幂等）；
+    //   禁止成员变量式 pendingMsgId 复用（回执丢失会让下一条新消息被服务端当重复吞掉）。
     wsService.send({
       type: 'chat',
       messages: history,
-      session_id: this.activeSessionId
+      session_id: this.activeSessionId,
+      client_msg_id: chatService.newMsgId()
     });
   }
   build() {

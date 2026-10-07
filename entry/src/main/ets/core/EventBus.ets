@@ -82,6 +82,7 @@ export class Events {
   static readonly CHAT_TOKEN: string = 'chat.token';
   /** S45-A：工具执行进度（来自服务端转发的 hermes.tool.progress） */
   static readonly CHAT_PROGRESS: string = 'chat.progress';
+  static readonly CHAT_THINKING: string = 'chat.thinking';  // V4-A5：thinking 帧接收端（S6 配套）
   static readonly CHAT_DONE: string = 'chat.done';
   static readonly CHAT_ERROR: string = 'chat.error';
   static readonly CHAT_SYNC_RESUME: string = 'chat.sync_resume';

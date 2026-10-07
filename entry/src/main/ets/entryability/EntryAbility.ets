@@ -88,6 +88,19 @@ export default class EntryAbility extends UIAbility {
     }
   }
 
+  onForeground(): void {
+    // V4-A8：后台冻结唤醒后立即刷新跨天键（与 ChatPage.onPageShow 双保险；
+    //   键名与 ChatPage 的 TODAY_KEY 保持一致）
+    try {
+      const d: Date = new Date();
+      const pad = (n: number): string => (n < 10 ? '0' + n : String(n));
+      AppStorage.setOrCreate('xiaoq_chat_today_key',
+        d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()));
+    } catch (e) {
+      // ignore
+    }
+  }
+
   onWindowStageCreate(windowStage: window.WindowStage): void {
     // S32：键盘遮挡的**真正根因与修复**。
     //

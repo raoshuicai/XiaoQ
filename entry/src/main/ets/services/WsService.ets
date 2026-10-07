@@ -71,6 +71,7 @@ export class WsService {
       ['sync_pending_response', Events.CHAT_SYNC_PENDING],
       ['chat_started', Events.CHAT_STARTED],
       ['chat_progress', Events.CHAT_PROGRESS],
+      ['chat_thinking', Events.CHAT_THINKING],  // V4-A5
       ['approve_request', Events.APPROVE_REQUEST],
       ['notification', Events.NOTIFICATION]
     ]);

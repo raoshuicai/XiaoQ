@@ -37,6 +37,9 @@ export interface WsMessage {
   // 聊天请求
   messages?: Object[];    // 消息历史
   session_id?: string;    // 会话 ID（S12 起为 app-{uuid} 形式的真实会话，不再是 device_id）
+  /** V4-A6：幂等键（chat 帧专用）。同一条消息的重发（pendingQueue 排空）天然复用同一帧；
+   *  用户新消息每次生成新 id —— 服务端据此防「断线重连重发导致同一消息跑两遍」。 */
+  client_msg_id?: string;
   // 授权卡片（新格式）
   run_id?: string;        // Hermes 运行ID
   command?: string;       // 需要授权的命令

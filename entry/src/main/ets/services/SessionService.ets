@@ -133,12 +133,18 @@ export function sessionTime(sec: number): string {
     return '—';
   }
   const d: Date = new Date(sec * 1000);
-  const now: Date = new Date();
+  // V4-A9：跨天判断改用 AppStorage 的 todayKey（与 MessageBubble 同源，
+  //   否则时间流逝不触发重绘，跨天后格式不更新 —— #IKJRZG 同类残留）
+  const pad2 = (n: number): string => (n < 10 ? '0' + n : String(n));
+  const dKey: string = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  let todayKey: string = AppStorage.get<string>('xiaoq_chat_today_key') ?? '';
+  if (todayKey === '') {
+    const n: Date = new Date();
+    todayKey = n.getFullYear() + '-' + pad2(n.getMonth() + 1) + '-' + pad2(n.getDate());
+  }
   const hh: string = String(d.getHours()).padStart(2, '0');
   const mm: string = String(d.getMinutes()).padStart(2, '0');
-  const sameDay: boolean = d.getFullYear() === now.getFullYear()
-    && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
-  if (sameDay) {
+  if (dKey === todayKey) {
     return hh + ':' + mm;
   }
   const mo: string = String(d.getMonth() + 1).padStart(2, '0');
