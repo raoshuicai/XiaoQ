@@ -38,7 +38,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.9';
+const APP_VERSION: string = '3.9.10';
 
 // V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
 const TODAY_KEY: string = 'xiaoq_chat_today_key';
@@ -465,6 +465,13 @@ struct ChatPage {
     };
     cb.onIndicatorReplace = (content: string): void => {
       this.replaceIndicator(content);
+    };
+    // 服务端确认流仍在（或流已注册待首 token）→ 连接恢复已成事实，
+    //   立刻撤掉「正在恢复连接」占位符（此前会一直挂到 final 答复）。
+    cb.onIndicatorDismiss = (): void => {
+      if (chatService.removeIndicator()) {
+        this.syncMessages();
+      }
     };
     // 服务端确认该会话已无活跃流（也没有离线缓存）→ 结束「恢复中」，不能一直转圈
     cb.onStreamMissing = (): void => {

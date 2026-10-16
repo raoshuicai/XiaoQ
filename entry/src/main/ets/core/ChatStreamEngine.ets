@@ -80,6 +80,14 @@ export class StreamCallbacks {
 
   onIndicatorReplace: (content: string) => void = (content: string): void => {};
 
+  /**
+   * 服务端已确认「流还活着」—— 连接恢复本身已成事实，此时应立即撤掉
+   * 「⏳ 正在恢复连接」占位符，改由流式气泡 / 工具进度条表示进行中。
+   * ⚠️ 此前它在「无已累积 token」时不被清除，要一直挂到本轮 final 答复才被替换，
+   *    实测断线恢复后多挂约 90 秒（长任务首 token 未到时），用户误判网络未恢复。
+   */
+  onIndicatorDismiss: () => void = (): void => {};
+
   onSyncNeeded: (sessionId: string, lastSeq: number) => void =
     (sessionId: string, lastSeq: number): void => {};
 }
@@ -291,6 +299,12 @@ export class ChatStreamEngine {
     if (this.streamContent.length > 0) {
       this.cb.onIndicatorReplace(this.streamContent);
       this.pendingIndicator = false;
+    } else {
+      // 无已累积内容：连接已确认恢复（服务端明确回了 sync_resume），
+      //   「正在恢复连接」的前提不再成立 → 立即撤掉占位符，
+      //   由紧随其后的 onStreamStart 让流式气泡 / 进度条表示进行中。
+      this.cb.onIndicatorDismiss();
+      this.pendingIndicator = false;
     }
     this.isStreaming = true; // 让流式气泡显示
     // 评审 REV-07 附带：同步通知页面，避免「engine 认为在流式、页面认为不在」的状态不一致。
@@ -333,6 +347,12 @@ export class ChatStreamEngine {
       this.streamContent = '';
       this.lastSeq = -1;
       this.cb.onStreamMissing();
+    } else {
+      // ① 流已注册但还没 token（刚起步）→ 继续等；但连接本身已恢复，
+      //   立即撤掉占位符，避免它一直挂到 final 答复（实测多挂约 90 秒）。
+      console.info('sync_pending: stream alive but no tokens yet -> dismiss indicator, keep waiting');
+      this.cb.onIndicatorDismiss();
+      this.pendingIndicator = false;
     }
   }
 
