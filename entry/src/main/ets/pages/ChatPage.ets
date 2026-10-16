@@ -38,7 +38,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.10';
+const APP_VERSION: string = '3.9.11';
 
 // V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
 const TODAY_KEY: string = 'xiaoq_chat_today_key';
@@ -480,6 +480,12 @@ struct ChatPage {
       chatService.removeIndicator();
       this.streamContent = '';
       this.syncMessages();
+      // V2-E：服务端既无活跃流也无离线缓存（离线缓存只保 15 分钟）——
+      //   此时回复内容已不在推送通道里。主动补拉一次服务端历史，
+      //   否则「问题早就跑完了、前台却永远看不到」且没有任何重试入口
+      //   （评审 MoA-2 场景矩阵第 4 行：下楼/进电梯超 15 分钟必中）。
+      console.info('stream_missing: pulling server history as fallback');
+      void this.loadHistoryFromServer(this.activeSessionId);
     };
     cb.onSyncNeeded = (sessionId: string, lastSeq: number): void => {
       wsService.send({
@@ -701,8 +707,11 @@ struct ChatPage {
     // 原因：WiFi→5G 切换后那条内网 TCP 已实际断开，但客户端可能尚未收到 close
     // 事件、isConnected() 仍返回 true —— 于是不会重连，消息全进待发队列。
     // 这里先比对 baseUrl 是否与当前网络一致，不一致就重连。
-    this.ensureNetworkMatches().then(() => {
-      if (!wsService.isConnected()) {
+    this.ensureNetworkMatches().then((reconnected: boolean) => {
+      // V2-F3：ensureNetworkMatches 内部若已重连（网络确实切了），就不要再连一次 ——
+      //   否则此刻新 socket 尚未 open、isConnected() 仍为 false，会立刻再建一条，
+      //   把刚建的那条 close 掉（评审 MoA-1 F3：这个双连接今天就存在）。
+      if (!reconnected && !wsService.isConnected()) {
         this.detectApiUrl().then((detectedUrl: string) => {
           this.setupWebSocket(detectedUrl);
           console.info('WS reconnected on foreground');
@@ -820,12 +829,12 @@ struct ChatPage {
    * 这里做的是「兜底自愈」：只要检测到的地址与当前不一致，就重新配置 + 重连，
    * 之后消息会随重连从待发队列里发出去（WsService.drainPendingQueue）。
    */
-  private async ensureNetworkMatches(): Promise<void> {
+  private async ensureNetworkMatches(): Promise<boolean> {
     try {
       const detected: string = await apiConfig.detect();
       const current: string = apiConfig.getBaseUrl();
       if (current === detected) {
-        return;
+        return false;   // V2-F3：未切换
       }
       console.info('network changed: ' + current + ' -> ' + detected + ', reconnecting');
       this.networkMode = apiConfig.getNetworkMode();
@@ -834,8 +843,10 @@ struct ChatPage {
       wsService.close();
       this.setupWebSocket(detected);
       this.showToast('网络已切换，正在重连…');
+      return true;    // V2-F3：已在本方法内完成重连，调用方不要再连一次
     } catch (e) {
       console.info('ensureNetworkMatches failed: ' + this.errText(e));
+      return false;
     }
   }
 

@@ -7,6 +7,12 @@ const WS_RECONNECT_DELAY: number = 2000; // 断线重连延时2秒（原5秒）
 //   路线一不做 create_task，长工具静默期服务端不回 pong，60s 会误重连（M-4 拦的正是这个）。
 //   一切入站帧（token/progress/pong/…）都刷新 lastAliveAt → 静默期靠 chat_progress 续命。
 const WS_ALIVE_TIMEOUT: number = 90000;
+// V2-B：心跳伴随式探针阈值 —— 2 个心跳周期无任何入站即认为可能已切网/半开盲区，
+//   此时主动解析一次地址；若变了就掐断底层 socket 走正常重连（不新增定时器）。
+//   比看门狗 90s 提前 60s，且长工具静默期有 chat_progress 入站、不会误触发。
+const WS_PROBE_IDLE: number = 30000;
+// V2-D：重连退避上限（固定 2s 在切网抖动期会与探针互相踩踏，造成连接风暴/隧道 429）
+const WS_RECONNECT_MAX: number = 16000;
 
 export class WebSocketClient {
   private ws: webSocket.WebSocket | null = null;
@@ -21,6 +27,15 @@ export class WebSocketClient {
   private disconnectNotified: boolean = false;  // 防重入标志位（issue #14）
   private pendingQueue: WsMessage[] = [];  // WS 未连接时暂存消息，连上后自动排空
   private lastAliveAt: number = 0;  // V4-A1：最近一次入站时间（任何帧都刷新，含 pong）
+  // V2-A：重连前解析最新地址的注入闭包。utils/ 层不得反向依赖 core/（ApiConfig），
+  //   故由 services/WsService 注入；闭包内必须走 apiConfig.detect()（每次都读 SSID），
+  //   不能用 ensureReady/detectApiUrl（那两个有缓存，会返回启动时的旧地址）。
+  public urlResolver?: () => Promise<string>;
+  // V2-C：代际号 —— 只处理"当前代际 socket"的事件，杜绝旧 socket 的 close/error
+  //   触发新一轮重连（否则服务端按 client_id 顶掉旧连接时会成环）。
+  private epoch: number = 0;
+  // V2-D：连续失败计数（指数退避）；收到任一业务入站帧后归零。
+  private retryCount: number = 0;
 
   constructor(clientId: string) {
     this.clientId = clientId;
@@ -33,11 +48,37 @@ export class WebSocketClient {
   }
 
   public connect(url: string): void {
+    // V2-D：显式 connect 属于「手动/用户驱动」重连 → 退避归零，立即连
+    //   （否则回前台、发消息这些本应秒恢复的路径会被退避拖慢）
+    this.retryCount = 0;
     this.url = url;
-    this.doConnect();
+    void this.doConnect();
   }
 
-  private doConnect(): void {
+  private async doConnect(): Promise<void> {
+    const myEpoch: number = ++this.epoch;   // V2-C：本代际
+
+    // V2-A：重连/首连前解析一次最新地址（网络类型可能已变）。
+    //   解析必须在本代际的守卫段内 —— 若期间来了更新的一代，直接放弃本次，
+    //   否则慢返回的解析结果会把新地址覆写回旧值（TOCTOU）。
+    if (this.urlResolver !== undefined) {
+      try {
+        const resolved: string = await this.urlResolver();
+        if (myEpoch !== this.epoch) {
+          return;
+        }
+        if (resolved.length > 0 && resolved !== this.url) {
+          console.info('WS url refreshed: ' + this.url + ' -> ' + resolved);
+          this.url = resolved;
+        }
+      } catch (error) {
+        console.error('WS url resolve failed: ' + error);
+      }
+    }
+    if (myEpoch !== this.epoch) {
+      return;
+    }
+
     if (this.ws !== null) {
       this.close();
     }
@@ -49,6 +90,9 @@ export class WebSocketClient {
       this.ws = webSocket.createWebSocket();
 
       this.ws.on('open', () => {
+        if (myEpoch !== this.epoch) {
+          return;   // V2-C：旧代际的事件，丢弃
+        }
         this.connected = true;
         this.lastAliveAt = Date.now();  // V4-A1
         if (this.onConnect !== undefined) {
@@ -64,7 +108,13 @@ export class WebSocketClient {
           console.error('WS message error: ' + err);
           return;
         }
+        if (myEpoch !== this.epoch) {
+          return;   // V2-C：旧代际的事件，丢弃
+        }
         this.lastAliveAt = Date.now();  // V4-A1：任何入站都刷新（pong/token/progress 均算存活）
+        // V2-D：收到任何业务入站帧 = 网络确实通到了应用层（不是只握手成功）→ 退避归零。
+        //   ⚠️ 刻意不在 on('open') 重置：TCP 握手成功不代表能通到服务端。
+        this.retryCount = 0;
         try {
           const msg: WsMessage = JSON.parse(data as string) as WsMessage;
           if (msg.type === 'pong') {
@@ -79,6 +129,9 @@ export class WebSocketClient {
       });
 
       this.ws.on('close', () => {
+        if (myEpoch !== this.epoch) {
+          return;   // V2-C：旧 socket 的 close（含服务端 'replaced by newer connection'）不成环
+        }
         this.connected = false;
         this.stopPing();
         if (!this.disconnectNotified && this.onDisconnect !== undefined) {
@@ -89,6 +142,9 @@ export class WebSocketClient {
       });
 
       this.ws.on('error', () => {
+        if (myEpoch !== this.epoch) {
+          return;   // V2-C
+        }
         this.connected = false;
         this.stopPing();
         if (!this.disconnectNotified && this.onDisconnect !== undefined) {
@@ -99,8 +155,11 @@ export class WebSocketClient {
       });
 
       this.ws.connect(fullUrl, (err: Error) => {
+        if (myEpoch !== this.epoch) {
+          return;   // V2-C
+        }
         if (err !== null && err !== undefined) {
-          console.error('WS connect error: ' + err);
+          console.error('WS connect error: ' + err + ' (url=' + this.url + ')');
           this.scheduleReconnect();
         }
       });
@@ -157,8 +216,40 @@ export class WebSocketClient {
         }
         return;
       }
+      // V2-B：30s 无入站（2 个心跳周期）→ 可能已切网/进入半开盲区。
+      //   主动解析一次地址；若已变（内网→公网）就掐断底层 socket，
+      //   让 on('close') 走正常重连路径，而重连时 urlResolver 会读新地址。
+      //   零新增定时器：探针生命周期与 WS 天然绑定。
+      if (this.lastAliveAt > 0 && idle > WS_PROBE_IDLE) {
+        void this.probeNetwork();
+      }
       this.sendPing();
     }, WS_PING_INTERVAL);
+  }
+
+  /**
+   * V2-B：心跳伴随式网络探针（见 startPing 的调用点）。
+   * 只在地址「确实变了」时才动手，避免无谓重连。
+   */
+  private async probeNetwork(): Promise<void> {
+    if (this.urlResolver === undefined) {
+      return;
+    }
+    try {
+      const latest: string = await this.urlResolver();
+      if (latest.length > 0 && latest !== this.url) {
+        console.info('WS probe: address changed ' + this.url + ' -> ' + latest + ', forcing reconnect');
+        if (this.ws !== null) {
+          try {
+            this.ws.close();
+          } catch (error) {
+            console.error('WS probe close failed: ' + error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('WS probe failed: ' + error);
+    }
   }
 
   private stopPing(): void {
@@ -172,12 +263,19 @@ export class WebSocketClient {
     if (this.reconnectTimer !== undefined) {
       return; // 已安排重连
     }
+    // V2-D：指数退避 + ±20% 抖动。固定 2s 在切网抖动期会与探针互相踩踏，
+    //   服务端 ConnectionManager 每次 connect 都顶掉旧连接 → 容易触发隧道 429。
+    const base: number = Math.min(WS_RECONNECT_MAX, WS_RECONNECT_DELAY * Math.pow(2, this.retryCount));
+    const jitter: number = 0.8 + Math.random() * 0.4;
+    const delay: number = Math.floor(base * jitter);
+    this.retryCount++;
+    console.info('WS reconnect in ' + delay + 'ms (retry=' + this.retryCount + ')');
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
       if (!this.connected) {
-        this.doConnect();
+        void this.doConnect();
       }
-    }, WS_RECONNECT_DELAY);
+    }, delay);
   }
 
   public close(): void {

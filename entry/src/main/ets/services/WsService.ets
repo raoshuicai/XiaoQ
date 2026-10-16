@@ -18,6 +18,7 @@
 import { WebSocketClient } from '../utils/WebSocketClient.ets';
 import { WsMessage } from '../models/WsModels.ets';
 import { eventBus, Events } from '../core/EventBus.ets';
+import { apiConfig } from '../core/ApiConfig.ets';
 
 export class WsService {
   private client: WebSocketClient = new WebSocketClient('pending');
@@ -54,6 +55,17 @@ export class WsService {
     const wsBase: string = httpBaseUrl.startsWith('https')
       ? httpBaseUrl.replace('https', 'wss')
       : httpBaseUrl.replace('http', 'ws');
+    // V2-A：注入地址解析闭包 —— WebSocketClient 每次重连/探针前都会调用它。
+    //   ⚠️ 必须走 apiConfig.detect()（每次都读 SSID）；ensureReady/detectApiUrl 有缓存，
+    //      会返回启动时的旧地址，那样方案等于没做（评审 MoA-1 F1）。
+    //   ⚠️ 必须在这里补 http→ws 协议转换（detect 返回的是 http/https）。
+    //   放在 services/ 层注入，避免 utils/ 反向依赖 core/，也避免动 ChatPage/ChatWsBridge（评审 MoA-2）。
+    this.client.urlResolver = async (): Promise<string> => {
+      const httpUrl: string = await apiConfig.detect();
+      return httpUrl.startsWith('https')
+        ? httpUrl.replace('https', 'wss')
+        : httpUrl.replace('http', 'ws');
+    };
     this.client.connect(wsBase);
   }
 
