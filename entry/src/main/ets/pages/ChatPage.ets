@@ -38,7 +38,7 @@ import { sessionService } from '../services/SessionService.ets';
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.8';
+const APP_VERSION: string = '3.9.9';
 
 // V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
 const TODAY_KEY: string = 'xiaoq_chat_today_key';
@@ -193,8 +193,8 @@ struct ChatPage {
   }
 
   // 替换消息列表中最后一条恢复提示为指定内容，返回是否找到并替换
-  private replaceIndicator(newContent: string): boolean {
-    const replaced: boolean = chatService.replaceIndicator(newContent);
+  private replaceIndicator(newContent: string, metrics?: MsgMetrics): boolean {
+    const replaced: boolean = chatService.replaceIndicator(newContent, metrics);
     if (replaced) {
       this.syncMessages();
     }
@@ -439,7 +439,7 @@ struct ChatPage {
         // 再来一次就会出现两条一模一样的回复（实测）。
         if (chatService.isLastAssistantSame(finalContent)) {
           console.info('S19 duplicate completion ignored');
-        } else if (!this.replaceIndicator(finalContent)) {
+        } else if (!this.replaceIndicator(finalContent, metrics)) {
           // 替换掉恢复提示（如果存在），只有没替换时才追加
           // S41：把本轮指标一起挂在消息上（metrics 为 undefined 时不显示）
           chatService.append('assistant', finalContent, metrics);

@@ -92,13 +92,19 @@ export class ChatService {
    * 用内容替换最后一条"正在恢复连接"占位符。
    * @returns 是否找到并替换（false 时调用方应改为 append）
    */
-  public replaceIndicator(newContent: string): boolean {
+  public replaceIndicator(newContent: string, metrics?: MsgMetrics): boolean {
     for (let i: number = this.messages.length - 1; i >= 0; i--) {
       if (this.messages[i].content.startsWith(PLACEHOLDER_PREFIX)) {
         const replaced: ChatMessage = {
           role: 'assistant',
           content: newContent,
-          msg_id: this.newMsgId()
+          msg_id: this.newMsgId(),
+          // 指标丢失修复（2026-10-16）：占位符替换路径必须与 append 一样落
+          //   createdAt + metrics。断线重连走的正是这条分支（先出现「⏳ 正在恢复
+          //   连接」占位符、随后 chat_done 才到），漏掉这两项会让气泡永久没有
+          //   时间戳与 TTFT/TPS/KV 指标。
+          createdAt: Date.now(),
+          metrics: metrics
         };
         this.messages.splice(i, 1, replaced);
         this.scheduleSave();
