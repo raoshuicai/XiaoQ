@@ -27,8 +27,13 @@ export struct StreamingBubble {
 
       Column() {
         Row() {
-          Text('🤖')
-            .fontSize(16)
+          // 头像：与已完成消息（MessageBubble）保持一致，用同一张小Q女性头像。
+          //   原先这里是硬编码的 '🤖' emoji —— 在系统字体下渲染成红色机器人，
+          //   与「小Q 是女性角色」的人设及已完成消息的头像都不一致（用户反馈）。
+          Image($r('app.media.bot_avatar'))
+            .width(20)
+            .height(20)
+            .borderRadius(10)
             .margin({ right: 6 })
           Text('小Q')
             .fontSize(12)
