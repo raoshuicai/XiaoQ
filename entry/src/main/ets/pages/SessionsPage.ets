@@ -52,6 +52,13 @@ struct SessionsPage {
   @State renameText: string = '';
   private menuTarget: SessionItem | null = null;
 
+  /**
+   * 列表静默刷新定时器（跨端可见性）。
+   * 桌面/WebUI 那边一边跑，这里的「消息数 / 最后活动时间 / 正在跑」才会跟着动；
+   * 不刷新的话列表就是打开那一刻的快照，看着像卡住了。
+   */
+  private refreshTimer: number | undefined = undefined;
+
   private targetTitle(): string {
     return this.menuTarget !== null ? this.menuTarget.displayTitle() : '';
   }
@@ -117,6 +124,90 @@ struct SessionsPage {
 
   aboutToAppear(): void {
     this.load(true);
+    this.startAutoRefresh();
+  }
+
+  onPageShow(): void {
+    this.startAutoRefresh();
+    // 从聊天页回到列表时立刻刷一次，别等定时器
+    this.refreshQuiet();
+  }
+
+  onPageHide(): void {
+    this.stopAutoRefresh();
+  }
+
+  aboutToDisappear(): void {
+    this.stopAutoRefresh();
+  }
+
+  private startAutoRefresh(): void {
+    this.stopAutoRefresh();
+    this.refreshTimer = setInterval(() => {
+      this.refreshQuiet();
+    }, 8000);
+  }
+
+  private stopAutoRefresh(): void {
+    if (this.refreshTimer !== undefined) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = undefined;
+    }
+  }
+
+  /**
+   * 静默刷新第一页并按 id 合并（跨端可见性）。
+   *
+   * ⚠️ 不能用 load(true) 顶替：那会整表替换，用户已经翻了几页时列表会被打回一页；
+   *    这里只更新已存在条目的状态字段，并把新冒出来的会话插到最前面。
+   * ⚠️ 字段是被原地改的（SessionItem 不是 @Observed），所以靠 ForEach 的 key
+   *    带上 active/source/activity 来触发重建 —— 只换数组引用不够。
+   */
+  private async refreshQuiet(): Promise<void> {
+    if (this.loading || this.loadingMore || this.layer.length > 0) {
+      return;
+    }
+    try {
+      await apiConfig.ensureReady(this.apiKey);
+      rest.configure(apiConfig.getBaseUrl(), apiConfig.getApiKey());
+      const page = await sessionService.fetchSessions(PAGE_SIZE, 0);
+      const known: string[] = [];
+      for (const old of this.items) {
+        known.push(old.id);
+        for (const n of page.items) {
+          if (n.id === old.id) {
+            old.messageCount = n.messageCount;
+            old.updatedAt = n.updatedAt;
+            old.tokens = n.tokens;
+            old.source = n.source;
+            old.activity = n.activity;
+            old.active = n.active;
+            break;
+          }
+        }
+      }
+      const fresh: SessionItem[] = [];
+      for (const n of page.items) {
+        if (known.indexOf(n.id) < 0) {
+          fresh.push(n);
+        }
+      }
+      if (fresh.length > 0) {
+        const merged: SessionItem[] = [];
+        for (const f of fresh) {
+          merged.push(f);
+        }
+        for (const o of this.items) {
+          merged.push(o);
+        }
+        this.items = merged;
+      } else {
+        this.items = this.items.slice();   // 换引用触发刷新
+      }
+      this.total = page.total;
+    } catch (e) {
+      console.info('quiet refresh skipped: ' + (e instanceof Error ? (e as Error).message : String(e)));
+    }
   }
 
   private async load(reset: boolean): Promise<void> {
@@ -321,6 +412,24 @@ struct SessionsPage {
                       .width('100%')
 
                     Row() {
+                      // 跨端来源角标：桌面 / WebUI / CLI / 飞书 …（本机 APP 的会话不显示）
+                      if (s.sourceLabel().length > 0) {
+                        Text(s.sourceLabel())
+                          .fontSize(10)
+                          .fontColor($r('app.color.text_tertiary'))
+                          .padding({ left: 5, right: 5, top: 1, bottom: 1 })
+                          .borderRadius(4)
+                          .borderWidth(1)
+                          .borderColor($r('app.color.divider'))
+                          .margin({ right: 6 })
+                      }
+                      // 另一端此刻正在跑 —— 只用文字标记，系统图标不可靠
+                      if (s.active) {
+                        Text('● 正在跑')
+                          .fontSize(11)
+                          .fontColor($r('app.color.brand'))
+                          .margin({ right: 6 })
+                      }
                       Text(s.messageCount + ' 条消息')
                         .fontSize(11).fontColor($r('app.color.text_tertiary'))
                       Text('·')
@@ -333,6 +442,17 @@ struct SessionsPage {
                     }
                     .width('100%')
                     .margin({ top: 5 })
+
+                    // 对面跑到哪一步（工具级进度，服务端 state.db 里的活动描述）
+                    if (s.active && s.activity.length > 0) {
+                      Text(s.activity)
+                        .fontSize(10)
+                        .fontColor($r('app.color.brand'))
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        .width('100%')
+                        .margin({ top: 3 })
+                    }
                   }
                   .layoutWeight(1)
                   .alignItems(HorizontalAlign.Start)
@@ -365,7 +485,10 @@ struct SessionsPage {
             // ⚠️ key 必须包含 title：ForEach 按 key 复用组件，只用 s.id 的话
             //    改名后 id 没变 -> ArkUI 直接复用旧组件 -> 标题文字不更新，
             //    表现为"改完名字不生效，退出重进列表才看到"（实测踩坑）。
-            }, (s: SessionItem) => s.id + '|' + s.title)
+            // ⚠️ 同理要带上 active / source / activity：SessionItem 不是 @Observed，
+            //    静默刷新是原地改字段，key 不变就不会重建，角标和「正在跑」不刷新。
+            }, (s: SessionItem) => s.id + '|' + s.title + '|' + (s.active ? '1' : '0')
+              + '|' + s.sourceLabel() + '|' + s.activity)
 
             // 分页加载
             if (this.hasMore) {

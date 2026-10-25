@@ -45,6 +45,10 @@ export class SessionService {
       s.updatedAt = SessionService.num(r, 'updated_at');
       s.messageCount = SessionService.num(r, 'message_count');
       s.tokens = SessionService.num(r, 'tokens');
+      // 跨端可见性：来源 + 对面是否正在跑（服务端已返回，之前没接）
+      s.source = SessionService.str(r, 'source');
+      s.activity = SessionService.str(r, 'activity');
+      s.active = SessionService.bool(r, 'active');
       out.items.push(s);
     }
     return out;
@@ -101,6 +105,14 @@ export class SessionService {
     const out: MessagePage = new MessagePage();
     out.total = SessionService.num(raw, 'total');
     out.hasMore = raw['has_more'] === true;
+    // 会话级状态（服务端随包返回）—— 跨端轮询靠它判断「对面还在跑没有」
+    const meta: Object | undefined = raw['session'];
+    if (meta !== undefined && meta !== null) {
+      const mr: Record<string, Object> = meta as Record<string, Object>;
+      out.source = SessionService.str(mr, 'source');
+      out.activity = SessionService.str(mr, 'activity');
+      out.active = SessionService.bool(mr, 'active');
+    }
     const arr: Object[] = (raw['items'] as Object[]) ?? [];
     for (const it of arr) {
       const r: Record<string, Object> = it as Record<string, Object>;
@@ -122,6 +134,11 @@ export class SessionService {
   private static num(o: Record<string, Object>, key: string): number {
     const v: Object | undefined = o[key];
     return typeof v === 'number' ? v as number : 0;
+  }
+
+  private static bool(o: Record<string, Object>, key: string): boolean {
+    const v: Object | undefined = o[key];
+    return v === true;
   }
 }
 

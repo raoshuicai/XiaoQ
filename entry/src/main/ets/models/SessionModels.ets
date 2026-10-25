@@ -22,12 +22,56 @@ export class SessionItem {
   messageCount: number = 0;
   tokens: number = 0;
 
+  /**
+   * 跨端可见性三件套（服务端 /api/sessions 已返回，此前客户端没接）：
+   *   source   —— 这条会话是哪一端建的：api_server(本机 APP) / desktop / webui / cli / feishu ...
+   *   activity —— 另一端此刻在干什么（'terminal command running (40s elapsed)'）
+   *   active   —— 另一端是否正在这一轮里跑（服务端按 90 秒活动窗口判定）
+   */
+  source: string = '';
+  activity: string = '';
+  active: boolean = false;
+
   /** 展示用标题：有 title 用 title，否则用时间 + 消息数兜底 */
   displayTitle(): string {
     if (this.title.length > 0) {
       return this.title;
     }
     return '会话 ' + this.id.substring(0, 14);
+  }
+
+  /**
+   * 来源角标文案。本机 APP 自己发起的会话（source=api_server）返回空串 —— 不显示角标，
+   * 免得整屏都是「手机」标签反而看不出哪条是跨端的。
+   */
+  sourceLabel(): string {
+    if (this.source === 'desktop') {
+      return '桌面';
+    }
+    if (this.source === 'webui') {
+      return 'WebUI';
+    }
+    if (this.source === 'cli' || this.source === 'tui') {
+      return 'CLI';
+    }
+    if (this.source === 'feishu') {
+      return '飞书';
+    }
+    if (this.source === 'telegram') {
+      return 'TG';
+    }
+    if (this.source === 'weixin') {
+      return '微信';
+    }
+    if (this.source === 'ntfy') {
+      return '通知';
+    }
+    return '';
+  }
+
+  /** 是不是「另一端」的会话（非本机 APP 建的） */
+  isForeign(): boolean {
+    return this.source.length > 0 && this.source !== 'api_server';
   }
 }
 
@@ -52,4 +96,11 @@ export class MessagePage {
   items: SessionMessage[] = [];
   total: number = 0;
   hasMore: boolean = false;
+  /**
+   * 会话级状态（服务端 messages 接口随包返回）：
+   *   跨端会话在轮询历史时，靠这三个字段判断「对面还在跑没有、跑到哪一步」。
+   */
+  source: string = '';
+  activity: string = '';
+  active: boolean = false;
 }

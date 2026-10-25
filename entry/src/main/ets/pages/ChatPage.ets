@@ -34,11 +34,13 @@ import { approveService } from '../services/ApproveService.ets';
 import { notifyService } from '../services/NotifyService.ets';
 // S12：会话历史（本地缓存没有时从服务端拉）
 import { sessionService } from '../services/SessionService.ets';
+// 跨端会话轮询要用到消息页类型（含服务端随包返回的 session 状态）
+import { MessagePage, SessionMessage } from '../models/SessionModels.ets';
 // S5/S12：REST 客户端（拉会话历史要显式 configure）
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.12';
+const APP_VERSION: string = '3.9.13';
 
 // V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
 const TODAY_KEY: string = 'xiaoq_chat_today_key';
@@ -631,6 +633,9 @@ struct ChatPage {
             // S12：本地为空（重装 / 换设备）-> 先试服务端历史；确实没有才落欢迎语
             this.loadHistoryOrWelcome();
           }
+          // 冷启动时 onSessionChanged 早于 appCtx 就绪（会被 return 掉），
+          // 跨端轮询得在这里补一次 —— 否则重启后进桌面会话不会自动跟进度。
+          this.startRemotePoll();
         });
       });
     });
@@ -642,6 +647,7 @@ struct ChatPage {
     let loaded: number = 0;
     if (sid.length > 0) {
       try {
+        await this.ensureRestReady();
         const page = await sessionService.fetchMessages(sid, 100, 0);
         const list: ChatMessage[] = [];
         for (const m of page.items) {
@@ -670,6 +676,7 @@ struct ChatPage {
 
   aboutToDisappear(): void {
     this.stopDayCheck();            // V4-A8：onPageHide 不覆盖「页面被销毁」，两处都清
+    this.stopRemotePoll();          // 跨端轮询同理，别留孤儿定时器
     this.teardownSubscriptions();   // S2：必须注销事件订阅，否则重复订阅会让消息翻倍
     this.engine?.dispose();         // S3：状态机清掉全部计时器
     this.engine = null;
@@ -686,6 +693,8 @@ struct ChatPage {
     // V4-A8：后台冻结唤醒后立即刷新跨天键（定时器被冻结无法及时感知，必选项）
     AppStorage.setOrCreate(TODAY_KEY, this.calcTodayKey());
     this.startDayCheck();
+    // 跨端会话：回前台时恢复轮询（后台期间被停掉）
+    this.startRemotePoll();
     // S7：登记本页为「审批可展示页」——只有前台页面会渲染审批卡片
     approveService.setActivePage('chat');
     // S43：回前台时同步一次 YOLO 状态（Gateway 侧是内存态，重启会清）
@@ -767,6 +776,7 @@ struct ChatPage {
   onPageHide(): void {
     this.pageVisible = false;
     this.stopDayCheck();            // V4-A8：后台冻结定时器，清理防泄漏
+    this.stopRemotePoll();          // 跨端轮询同理：切走就停，回前台再起
     // S7：退出前台后不再渲染审批卡片（交给下一个前台页面）
     approveService.clearActivePage('chat');
   }
@@ -1120,6 +1130,8 @@ struct ChatPage {
     this.streamContent = '';
     this.isStreaming = false;
     this.isLoading = false;
+    // 跨端会话（桌面 / WebUI / CLI 建的）→ 开定时轮询，跟着对面的工具级进度走
+    this.startRemotePoll();
     chatService.loadSaved().then((restored: ChatMessage[]) => {
       if (restored.length > 0) {
         this.syncMessages();
@@ -1149,6 +1161,7 @@ struct ChatPage {
       return;
     }
     try {
+      await this.ensureRestReady();
       const page = await sessionService.fetchMessages(sid, 100, 0);
       const list: ChatMessage[] = [];
       for (const m of page.items) {
@@ -1184,6 +1197,196 @@ struct ChatPage {
 
   private errText(e: Object): string {
     return e instanceof Error ? (e as Error).message : String(e);
+  }
+
+  /**
+   * 确保 REST 客户端已配置好 baseUrl + apiKey。
+   *
+   * ⚠️ 冷启动时有竞态：`loadHistoryOrWelcome`/轮询可能早于全局的
+   *    `rest.configure(detected, apiConfig.getApiKey())` 跑，此时 rest 还没配 key
+   *    → 服务端直接 401 Invalid API key（实测：冷启动进桌面会话读历史必 401）。
+   *    ensureReady 是幂等的，不会把已检测到的 baseUrl 顶掉。
+   */
+  private async ensureRestReady(): Promise<void> {
+    await apiConfig.ensureReady(this.apiKey);
+    rest.configure(apiConfig.getBaseUrl(), apiConfig.getApiKey());
+  }
+
+  // ─── 跨端会话轮询（桌面 / WebUI / CLI 建的会话） ─────────────────────
+  //
+  // 背景：桌面端跑 turn 时的 token 流只发给发起端，不镜像到 APP；但每一轮的用户消息、
+  //   已完成的 tool 结果、以及最终的 assistant 正文，都会逐条写进同一个 state.db。
+  //   所以「进桌面会话时定时拉历史」= 手机上能看到对面跑到哪一步（工具级粒度，非逐字）。
+  //
+  // 判据：APP 自己发起的会话 id 一定是 `app-` 前缀（服务端新建时生成）；
+  //   其余（desktop 的 `2026MMDD_HHMMSS_xxxxxx`、webui 的十六进制、cli 等）都当跨端处理。
+  private remotePollTimer: number | undefined = undefined;
+  /** 上次同步时的内容指纹，用来判断服务端是否真有新内容 */
+  private remoteSig: string = '';
+  /** 对面是否还在跑（服务端 active），决定下次轮询间隔 */
+  private remoteActive: boolean = false;
+  private remoteActivity: string = '';
+
+  private isForeignSession(): boolean {
+    const sid: string = this.activeSessionId;
+    return sid.length > 0 && !sid.startsWith('app-');
+  }
+
+  private stopRemotePoll(): void {
+    if (this.remotePollTimer !== undefined) {
+      clearTimeout(this.remotePollTimer);
+      this.remotePollTimer = undefined;
+    }
+  }
+
+  /** 进会话 / 回前台时调用：是跨端会话才开轮询 */
+  private startRemotePoll(): void {
+    this.stopRemotePoll();
+    this.remoteSig = '';
+    if (!this.pageVisible || !this.isForeignSession()) {
+      return;
+    }
+    // 先等 1 秒：进会话时 onSessionChanged 自己会拉一次历史，别撞在一起
+    this.scheduleRemotePoll(1000);
+  }
+
+  private scheduleRemotePoll(delayMs: number): void {
+    this.stopRemotePoll();
+    this.remotePollTimer = setTimeout(() => {
+      this.pollRemoteOnce();
+    }, delayMs);
+  }
+
+  /**
+   * 内容指纹：条数 + 最后一条的 id/长度。
+   * ⚠️ 不能只比条数 —— 一轮结束时最终正文是**回填到已有的 assistant 行**上，
+   *    条数不变但内容变了，少了长度这一维就永远显示不出来。
+   */
+  private remoteSignature(page: MessagePage): string {
+    let n: number = page.items.length;
+    let lastId: number = 0;
+    let lastLen: number = 0;
+    if (n > 0) {
+      const m: SessionMessage = page.items[n - 1];
+      lastId = m.id;
+      lastLen = m.content.length;
+    }
+    return String(page.total) + '|' + String(n) + '|' + String(lastId) + '|' + String(lastLen);
+  }
+
+  /** 两条消息是否同一条（角色 + 内容 + 时间戳） */
+  private sameMessage(a: ChatMessage, b: ChatMessage): boolean {
+    const at: number = a.createdAt !== undefined ? a.createdAt : 0;
+    const bt: number = b.createdAt !== undefined ? b.createdAt : 0;
+    return a.role === b.role && a.content === b.content && at === bt;
+  }
+
+  private containsMessage(list: ChatMessage[], m: ChatMessage): boolean {
+    for (const x of list) {
+      if (this.sameMessage(x, m)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async pollRemoteOnce(): Promise<void> {
+    this.remotePollTimer = undefined;
+    if (!this.pageVisible || !this.isForeignSession()) {
+      return;
+    }
+    // APP 自己在这个会话里发起了一轮（正在流式）→ 交给流式通道，轮询让路，
+    // 否则历史回填会把正在生成的流式气泡顶掉。
+    if (this.isStreaming || this.isLoading) {
+      this.scheduleRemotePoll(3000);
+      return;
+    }
+    const sid: string = this.activeSessionId;
+    try {
+      await this.ensureRestReady();
+      const page = await sessionService.fetchMessages(sid, 100, 0);
+      // 拉的这段时间用户可能切走了会话 —— 别把别人的历史贴到当前界面
+      if (!this.pageVisible || sid !== this.activeSessionId) {
+        return;
+      }
+      this.remoteActive = page.active;
+      this.remoteActivity = page.activity;
+      const sig: string = this.remoteSignature(page);
+      if (sig !== this.remoteSig) {
+        this.remoteSig = sig;
+        const fresh: ChatMessage[] = [];
+        for (const m of page.items) {
+          // 只铺对话双方；tool / system 不进聊天流（与 loadHistoryFromServer 同口径）
+          if (m.role !== 'user' && m.role !== 'assistant') {
+            continue;
+          }
+          if (m.content.trim().length === 0) {
+            continue;
+          }
+          const sec: number = m.createdAt;
+          fresh.push({
+            role: m.role,
+            content: m.content,
+            createdAt: sec > 0 ? sec * 1000 : undefined,
+          });
+        }
+        // ⚠️ 不能 setMessages(fresh) 整表替换：服务端这页是「最新 100 行」的窗口，
+        //    桌面那边一轮工具密集的 turn 会塞进几十条 tool 行，把旧的对话挤出窗口 ——
+        //    实测直接把界面上的历史消息从 2 条打到 1 条再到 0 条（丢界面，不是丢数据）。
+        //    所以只做**尾部追加**：在本地最后一条能找到的位置之后补新的。
+        const merged: ChatMessage[] = [];
+        for (const m of this.messageList) {
+          merged.push(m);
+        }
+        const mergedBefore: number = merged.length;
+        if (merged.length === 0) {
+          for (const m of fresh) {
+            merged.push(m);
+          }
+        } else if (fresh.length > 0) {
+          let anchor: number = -1;
+          const last: ChatMessage = merged[merged.length - 1];
+          for (let j: number = fresh.length - 1; j >= 0; j--) {
+            if (this.sameMessage(last, fresh[j])) {
+              anchor = j;
+              break;
+            }
+          }
+          if (anchor >= 0) {
+            for (let j: number = anchor + 1; j < fresh.length; j++) {
+              merged.push(fresh[j]);
+            }
+          } else {
+            // 本地最后一条已不在窗口里（或被回填改写）→ 按时间补更晚的，避免重复
+            const lastAt: number = last.createdAt !== undefined ? last.createdAt : 0;
+            for (const m of fresh) {
+              const at: number = m.createdAt !== undefined ? m.createdAt : 0;
+              if (at > lastAt && !this.containsMessage(merged, m)) {
+                merged.push(m);
+              }
+            }
+          }
+        }
+        // 兜底：界面最多留最近 400 条（跨端是只读同步，别无限堆）
+        if (merged.length > 400) {
+          merged.splice(0, merged.length - 400);
+        }
+        const grew: boolean = merged.length > mergedBefore;
+        if (merged.length !== mergedBefore || mergedBefore === 0) {
+          chatService.setMessages(merged);
+          this.syncMessages();
+          if (grew) {
+            this.scrollToBottom();
+          }
+          console.info('remote poll synced ' + merged.length + ' msg (+'
+            + (merged.length - mergedBefore) + ', active=' + this.remoteActive + ') for ' + sid);
+        }
+      }
+    } catch (e) {
+      console.info('remote poll failed: ' + this.errText(e));
+    }
+    // 对面在跑：4 秒看一次（能看到工具级推进）；闲下来：12 秒看一次（省电省流量）
+    this.scheduleRemotePoll(this.remoteActive ? 4000 : 12000);
   }
 
   /**
