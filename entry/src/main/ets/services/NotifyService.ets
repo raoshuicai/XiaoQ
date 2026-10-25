@@ -40,8 +40,20 @@ export class NotifyService {
     return out;
   }
 
-  /** 拉服务端真实未读数并同步到 AppStorage，返回该值 */
+  /**
+   * 拉服务端未读数，写入 AppStorage。
+   *
+   * ⚠️ 冷启动必须提前返回：`onPageShow` 在首屏就会调这里，而此刻 Preferences 读取
+   *    与 `rest.configure(...)` 的那条异步链往往还没跑完 —— currentApiKey 仍是空，
+   *    请求不带 Authorization，服务端稳定回 401 Invalid API key（实测每次冷启动一条）。
+   *    这里直接跳过、保留 AppStorage 里的旧值；启动链里配置完成后还会再调一次。
+   */
   public async refreshUnread(): Promise<number> {
+    const cached: number = AppStorage.get<number>(UNREAD_KEY) as number ?? 0;
+    if (!rest.isConfigured()) {
+      console.info('unread refresh skipped: rest not configured yet');
+      return cached;
+    }
     const raw: Record<string, Object> = await rest.get('/api/push/unread') as Record<string, Object>;
     const n: number = NotifyService.num(raw, 'unread_count');
     AppStorage.setOrCreate(UNREAD_KEY, n);
