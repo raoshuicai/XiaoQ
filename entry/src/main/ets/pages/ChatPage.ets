@@ -40,7 +40,7 @@ import { MessagePage, SessionMessage, SessionMeta } from '../models/SessionModel
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.15';
+const APP_VERSION: string = '3.9.16';
 
 // V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
 const TODAY_KEY: string = 'xiaoq_chat_today_key';

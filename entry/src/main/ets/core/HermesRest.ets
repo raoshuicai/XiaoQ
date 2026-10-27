@@ -21,10 +21,14 @@
 
 import { rcp } from '@kit.RemoteCommunicationKit';
 
-/** 网络类错误重试次数（不含首次） */
-const MAX_RETRIES: number = 2;
-/** 重试退避基数（毫秒）：第一次 200ms，第二次 600ms */
-const RETRY_BASE_MS: number = 200;
+/** 重试次数（不含首次）：1s / 3s / 6s，累计 10s，覆盖隧道重连窗口（实测中位 11s） */
+const MAX_RETRIES: number = 3;
+/** 重试退避基数（毫秒）：第 1 次 1x，第 2 次 3x，第 3 次 6x */
+const RETRY_BASE_MS: number = 1000;
+/** 网关层错误码（Cloudflare 隧道重连窗口内返回，请求未到源站） */
+const GATEWAY_STATUS_502: number = 502;
+const GATEWAY_STATUS_503: number = 503;
+const GATEWAY_STATUS_504: number = 504;
 /** 旧 session 延迟销毁延迟（毫秒） */
 const DEFER_CLOSE_MS: number = 3000;
 /** 请求超时（与原先两处实现保持一致） */
@@ -83,7 +87,7 @@ export class HermesRest {
       }
     }
     const request: rcp.Request = new rcp.Request(url, 'GET', headers, {});
-    const response: rcp.Response = await this.fetchWithRetry(request);
+    const response: rcp.Response = await this.fetchWithRetry(request, true);
     return this.unwrap(response);
   }
 
@@ -97,7 +101,7 @@ export class HermesRest {
       }
     }
     const request: rcp.Request = new rcp.Request(path, 'POST', headers, body);
-    const response: rcp.Response = await this.fetchWithRetry(request);
+    const response: rcp.Response = await this.fetchWithRetry(request, false);
     return this.unwrap(response);
   }
 
@@ -210,17 +214,32 @@ export class HermesRest {
     return this.session;
   }
 
-  /** 带退避重试的 fetch（仅网络层异常才重试） */
-  private async fetchWithRetry(request: rcp.Request): Promise<rcp.Response> {
+  /**
+   * 带退避重试的 fetch。重试两类失败：
+   *  ① 网络层异常（rcp 抛错）—— 连接没建立，重发安全。
+   *  ② 网关层 5xx（502/503/504）—— 仅当 retryGateway=true（幂等方法 GET）时。
+   *     这类错误来自 Cloudflare 隧道重连窗口（实测中位 11s 黑洞），请求根本没到
+   *     源站，重发天然安全。POST 不重试：APP 侧没有幂等键（服务端 chat_idempotency
+   *     表建了但客户端没送 key），重发可能重复创建资源。
+   */
+  private async fetchWithRetry(request: rcp.Request, retryGateway: boolean): Promise<rcp.Response> {
     let lastError: Error | null = null;
     for (let attempt: number = 0; attempt <= MAX_RETRIES; attempt++) {
       if (attempt > 0) {
-        const waitMs: number = RETRY_BASE_MS * (attempt === 1 ? 1 : 3);
+        const waitMs: number = RETRY_BASE_MS * (attempt === 1 ? 1 : (attempt === 2 ? 3 : 6));
         await HermesRest.sleep(waitMs);
         console.info('[HermesRest] retry #' + attempt + ' after ' + waitMs + 'ms');
       }
       try {
-        return await this.ensureSession().fetch(request);
+        const response: rcp.Response = await this.ensureSession().fetch(request);
+        const status: number = response.statusCode;
+        if (retryGateway && (status === GATEWAY_STATUS_502 || status === GATEWAY_STATUS_503 ||
+          status === GATEWAY_STATUS_504)) {
+          lastError = new Error('HTTP ' + status);
+          console.info('[HermesRest] gateway ' + status + ' (tunnel reconnecting?), attempt ' + attempt);
+          continue;
+        }
+        return response;
       } catch (error) {
         // rcp 只在网络层失败时抛异常 → 可安全重试
         lastError = error instanceof Error ? (error as Error) : new Error(String(error));
