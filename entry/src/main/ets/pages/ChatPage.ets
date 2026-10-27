@@ -35,12 +35,12 @@ import { notifyService } from '../services/NotifyService.ets';
 // S12：会话历史（本地缓存没有时从服务端拉）
 import { sessionService } from '../services/SessionService.ets';
 // 跨端会话轮询要用到消息页类型（含服务端随包返回的 session 状态）
-import { MessagePage, SessionMessage } from '../models/SessionModels.ets';
+import { MessagePage, SessionMessage, SessionMeta } from '../models/SessionModels.ets';
 // S5/S12：REST 客户端（拉会话历史要显式 configure）
 import { rest } from '../core/HermesRest.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.14';
+const APP_VERSION: string = '3.9.15';
 
 // V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
 const TODAY_KEY: string = 'xiaoq_chat_today_key';
@@ -1226,6 +1226,10 @@ struct ChatPage {
   /** 对面是否还在跑（服务端 active），决定下次轮询间隔 */
   private remoteActive: boolean = false;
   private remoteActivity: string = '';
+  /** 轻量探针判据（2026-10-27）：末条消息 id + 末条正文长度。
+   *  有了它，无变化时不必再拉 100 条历史（原先每次 80KB）。 */
+  private remoteLastMsgId: number = 0;
+  private remoteLastLen: number = 0;
 
   private isForeignSession(): boolean {
     const sid: string = this.activeSessionId;
@@ -1243,6 +1247,10 @@ struct ChatPage {
   private startRemotePoll(): void {
     this.stopRemotePoll();
     this.remoteSig = '';
+    // 切/进会话必须清游标：沿用上个会话的值会让判据错位（首轮 meta 必然 changed，
+    //   进而拉一次全量，正好把界面刷成新会话的内容）
+    this.remoteLastMsgId = 0;
+    this.remoteLastLen = 0;
     if (!this.pageVisible || !this.isForeignSession()) {
       return;
     }
@@ -1304,6 +1312,33 @@ struct ChatPage {
     const sid: string = this.activeSessionId;
     try {
       await this.ensureRestReady();
+
+      // ── 轻量探针（2026-10-27）：约 300 字节判断「有没有变化」──
+      //   无变化直接排下一轮，不再拉 100 条历史（原先每次 80KB）
+      try {
+        const meta: SessionMeta = await sessionService.fetchSessionMeta(sid);
+        if (!this.pageVisible || sid !== this.activeSessionId) {
+          return;
+        }
+        const changed: boolean = meta.lastMsgId !== this.remoteLastMsgId
+          || meta.lastLen !== this.remoteLastLen
+          || meta.active !== this.remoteActive;
+        this.remoteActive = meta.active;
+        this.remoteActivity = meta.activity;
+        if (!changed) {
+          this.scheduleRemotePoll(meta.active ? 4000 : 12000);
+          return;
+        }
+        this.remoteLastMsgId = meta.lastMsgId;
+        this.remoteLastLen = meta.lastLen;
+        console.info('remote meta changed -> full fetch (id=' + meta.lastMsgId
+          + ', len=' + meta.lastLen + ', active=' + meta.active + ')');
+      } catch (e) {
+        // meta 失败 → 降级成老行为（拉全量），宁可流量回去也别让界面过期
+        console.info('remote meta probe failed, fallback to full fetch: ' + this.errText(e));
+      }
+
+      // ── 有变化（或探针失败）：拉全量 100 条，走原有合并渲染逻辑 ──
       const page = await sessionService.fetchMessages(sid, 100, 0);
       // 拉的这段时间用户可能切走了会话 —— 别把别人的历史贴到当前界面
       if (!this.pageVisible || sid !== this.activeSessionId) {

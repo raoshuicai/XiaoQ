@@ -12,7 +12,7 @@
  */
 
 import { rest } from '../core/HermesRest.ets';
-import { SessionItem, SessionMessage, SessionPage, MessagePage } from '../models/SessionModels.ets';
+import { SessionItem, SessionMessage, SessionPage, MessagePage, SessionMeta } from '../models/SessionModels.ets';
 
 /** 改名请求体（ArkTS 禁对象字面量，必须显式类型） */
 class RenameBody {
@@ -124,6 +124,25 @@ export class SessionService {
       out.items.push(m);
     }
     return out;
+  }
+
+  /**
+   * 轻量探针（2026-10-27）：只拉「有没有变化」需要的字段，约 300 字节。
+   * 跨端轮询靠它避免每次拉 100 条历史（实测 80KB）。
+   */
+  public async fetchSessionMeta(sessionId: string): Promise<SessionMeta> {
+    const raw: Record<string, Object> = await rest.get(
+      '/api/sessions/' + encodeURIComponent(sessionId) + '/meta', {}
+    ) as Record<string, Object>;
+    const m: SessionMeta = new SessionMeta();
+    m.id = SessionService.str(raw, 'id');
+    m.source = SessionService.str(raw, 'source');
+    m.active = SessionService.bool(raw, 'active');
+    m.activity = SessionService.str(raw, 'activity');
+    m.messageCount = SessionService.num(raw, 'message_count');
+    m.lastMsgId = SessionService.num(raw, 'last_msg_id');
+    m.lastLen = SessionService.num(raw, 'last_len');
+    return m;
   }
 
   private static str(o: Record<string, Object>, key: string): string {

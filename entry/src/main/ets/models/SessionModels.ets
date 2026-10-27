@@ -92,6 +92,22 @@ export class SessionPage {
 }
 
 /** 消息拉取结果 */
+/**
+ * 跨端轮询探针（2026-10-27）
+ * 只含「有没有变化」需要的字段：
+ *   lastMsgId —— 末条有效消息 id（判断有新增）
+ *   lastLen   —— 末条正文长度（判断正文被回填：id 不变但内容变了）
+ */
+export class SessionMeta {
+  id: string = '';
+  source: string = '';
+  active: boolean = false;
+  activity: string = '';
+  messageCount: number = 0;
+  lastMsgId: number = 0;
+  lastLen: number = 0;
+}
+
 export class MessagePage {
   items: SessionMessage[] = [];
   total: number = 0;
