@@ -8,7 +8,11 @@ param(
   [string]$ProjectDir = "D:\05_HarmonyNext\XiaoQ",
   [string]$RepoDir = "",
   [switch]$SkipSync = $false,
-  [string]$DeviceId = "127.0.0.1:5555"
+  [string]$DeviceId = "127.0.0.1:5555",
+  # 2026-11-08: hdc default server port 8710 falls inside a Hyper-V reserved
+  # range (8693-8752) -> bind fails, every hdc command silently no-ops and
+  # install falsely reports success. Pass an explicit server port instead.
+  [int]$HdcServerPort = 18710
 )
 
 $ErrorActionPreference = "Continue"
@@ -18,6 +22,7 @@ $env:NODE_HOME = "D:\Program Files\Huawei\DevEco Studio\tools\node"
 $env:PATH = "$env:JAVA_HOME\bin;$env:NODE_HOME;$env:PATH"
 
 $HDC = "D:\Program Files\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe"
+$HDCS = @("-s", "127.0.0.1:$HdcServerPort")
 $HR = "=" * 60
 
 function Step($Msg) { Write-Host "`n$HR`n$Msg`n$HR" -ForegroundColor Cyan }
@@ -78,17 +83,18 @@ if (-not (Test-Path $hap)) {
 $size = [math]::Round((Get-Item $hap).Length / 1KB)
 OK "HAP size: ${size}KB"
 
-$result = & $HDC -t $DeviceId install -r $hap 2>&1 | Out-String
-if ($LASTEXITCODE -ne 0) {
+# hdc 只接受原生反斜杠绝对路径（$hap 就是），不要改成相对路径或 MSYS 风格
+$result = & $HDC @HDCS -t $DeviceId install -r $hap 2>&1 | Out-String
+if ($result -match "Fail|error") {
   Fail "Install failed: $result"
 }
 OK "Install success"
 
 Start-Sleep -Seconds 1
-& $HDC -t $DeviceId shell "aa start -a EntryAbility -b xiaoq.debug.profile" *>$null
+& $HDC @HDCS -t $DeviceId shell "aa start -a EntryAbility -b xiaoq.debug.profile" *>$null
 OK "App started"
 
-$dump = & $HDC -t $DeviceId shell "bm dump -n xiaoq.debug.profile" 2>&1 | Out-String
+$dump = & $HDC @HDCS -t $DeviceId shell "bm dump -n xiaoq.debug.profile" 2>&1 | Out-String
 $verLine = $dump | Select-String '"versionName"' | Select-Object -First 1
 if ($verLine) {
   $v = ($verLine.Line -replace '.*"versionName": "(.*)"', '$1').Trim()
