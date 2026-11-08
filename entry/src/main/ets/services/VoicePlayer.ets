@@ -66,6 +66,12 @@ export class VoicePlayer {
   private prefetchIdx: number = -1;
   private fetchSegs: ((turn: string) => Promise<VoiceSeg[]>) | undefined = undefined;
   private absUrl: ((relative: string) => string) | undefined = undefined;
+  /** 本轮成功起播的段数 —— 用来区分「正常播完」和「一段都没播成」 */
+  private playedCount: number = 0;
+  /** 轮询停滞计数（连续多少次没有任何新段就绪） */
+  private pollStall: number = 0;
+  /** 历史上见过的最多 ready 段数 */
+  private pollReadyBest: number = 0;
 
   public bind(hooks: VoicePlayerHooks,
               fetchSegs: (turn: string) => Promise<VoiceSeg[]>,
@@ -96,6 +102,9 @@ export class VoicePlayer {
     this.queue = segments.slice(0);
     this.cursor = 0;
     this.pollCount = 0;
+    this.playedCount = 0;
+    this.pollStall = 0;
+    this.pollReadyBest = 0;
     hilog.info(0x0001, TAG, 'start turn=%{public}s segs=%{public}d',
       turnKey, this.queue.length);
     await this.playNext(sid);
@@ -240,6 +249,7 @@ export class VoicePlayer {
           });
         } else if (state === 'playing') {
           if (next !== undefined) {
+            this.playedCount = this.playedCount + 1;
             this.emit('playing', next.idx);
           }
         } else if (state === 'completed') {
@@ -298,6 +308,7 @@ export class VoicePlayer {
             this.playNext(sid);
           });
         } else if (state === 'playing') {
+          this.playedCount = this.playedCount + 1;
           this.emit('playing', seg.idx);
           hilog.info(0x0001, TAG, 'playing seg=%{public}d url=%{public}s', seg.idx, raw);
           this.prefetchNext(sid);          // 起播即预取下一段
@@ -390,8 +401,12 @@ export class VoicePlayer {
         this.polling = false;
         return;
       }
+      let readyNow: number = 0;
       for (let i: number = 0; i < latest.length; i++) {
         const s: VoiceSeg = latest[i];
+        if (s.status === 'ready') {
+          readyNow = readyNow + 1;
+        }
         for (let j: number = 0; j < this.queue.length; j++) {
           if (this.queue[j].idx === s.idx) {
             this.queue[j].status = s.status;
@@ -400,6 +415,20 @@ export class VoicePlayer {
             break;
           }
         }
+      }
+      // ⚠️ 快速失败：连续多次轮询没有任何新段就绪（服务端目录被清 / 48h 过期 /
+      //    请求一直 404），继续等只是让用户干等 12 秒。3.2 秒没进展就判失败。
+      if (readyNow <= this.pollReadyBest) {
+        this.pollStall = this.pollStall + 1;
+        if (this.pollStall >= 8) {
+          this.polling = false;
+          hilog.info(0x0001, TAG, 'poll stalled (%{public}d), give up', this.pollStall);
+          this.finish();
+          return;
+        }
+      } else {
+        this.pollReadyBest = readyNow;
+        this.pollStall = 0;
       }
     } catch (e) {
       hilog.error(0x0001, TAG, 'poll failed');
@@ -427,10 +456,15 @@ export class VoicePlayer {
 
   private finish(): void {
     this.releasePrefetch();
+    const played: number = this.playedCount;
     this.turnKey = '';
     this.queue = [];
     this.cursor = 0;
-    this.emit('finished', -1);
+    this.playedCount = 0;
+    // ⚠️ 一段都没播成 → 多半是服务端的段已过期（48h 清理）或客户端缓存指向了
+    //    已删文件。这种不能只把按钮复位（用户看到的是「点了没声音、按钮自己弹回去」），
+    //    要报 failed，让上层清缓存重新合成。
+    this.emit(played === 0 ? 'failed' : 'finished', -1);
   }
 
   private emit(state: string, segIdx: number): void {

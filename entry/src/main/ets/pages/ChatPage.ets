@@ -46,7 +46,7 @@ import { voiceService, TtsSeg } from '../services/VoiceService.ets';
 import { voicePlayer, VoicePlayerHooks, VoiceSeg } from '../services/VoicePlayer.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.28';
+const APP_VERSION: string = '3.9.29';
 
 // V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
 const TODAY_KEY: string = 'xiaoq_chat_today_key';
@@ -442,6 +442,26 @@ struct ChatPage {
         if (state === 'playing' && segIdx >= 0) {
           // P4：把当前段的文本交给气泡做高亮跟随
           this.playingSegText = this.segTextAt(this.playingMsgId, segIdx);
+        } else if (state === 'failed') {
+          // ⚠️ 一段都没播成：服务端段已过期（48h 清理）或本地缓存指向已删文件。
+          //    清掉悬空缓存并**自动重建一次**，否则用户看到的就是「点了没声音、
+          //    按钮自己弹回去」（实测就是这个现象）。
+          const mid: string = this.playingMsgId;
+          this.playingMsgId = '';
+          this.playingSegText = '';
+          if (mid.length > 0) {
+            this.voiceSegCache.delete(mid);
+          }
+          if (mid.length > 0 && !this.voiceRetried.has(mid)) {
+            this.voiceRetried.add(mid);
+            this.showToast('语音已过期，正在重新生成…');
+            const idx: number = this.findMsgIndexById(mid);
+            if (idx >= 0) {
+              this.onPlayVoiceTap(idx);
+              return;
+            }
+          }
+          this.showToast('语音播放失败，请稍后重试');
         } else if (state === 'finished' || state === 'error') {
           this.playingMsgId = '';
           this.playingSegText = '';
@@ -489,6 +509,22 @@ struct ChatPage {
     this.playingMsgId = key;
     this.playingSegText = '';
     await voicePlayer.start(key, [seg]);
+  }
+
+  /** P4：失败重试用过标记，同一条消息最多自动重建一次（防死循环） */
+  private voiceRetried: Set<string> = new Set<string>();
+
+  /** P4：按 msg_id 找消息下标（失败重建时用） */
+  private findMsgIndexById(msgId: string): number {
+    const arr: ChatMessage[] = this.messageList;
+    for (let i: number = 0; i < arr.length; i++) {
+      const m: ChatMessage = arr[i];
+      const mid: string = m.msg_id !== undefined ? m.msg_id : ('idx-' + i.toString());
+      if (mid === msgId) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   /** P4：按 msgId + 段序号取段文本（高亮跟随用） */
