@@ -30,6 +30,27 @@ export interface MsgMetrics {
   span_s?: number;
 }
 
+/**
+ * 语音消息元数据（P1 语音功能）
+ *
+ * 只有用户自己发的语音才有 audio 字段；小Q 的回复默认是纯文字（TTS 播报在 P2/P3）。
+ * ⚠️ 服务端消息库里**不存**这个字段 —— 消息正文就是 ASR 转写后的纯文本，
+ *    audio 只是端侧渲染语音条用的本地元数据。（这样跨端/历史上下文天然干净，
+ *    见 V3 §0 的架构裁决。）
+ */
+export interface VoiceMeta {
+  /** 服务端可回放地址，如 /api/upload/voice_xxx.m4a */
+  url: string;
+  /** 录音时长（毫秒） */
+  durationMs: number;
+  /** ASR 转写文字（与消息 content 相同，单独存一份便于语音条展示） */
+  transcript: string;
+  /** 是否用户自己发的语音（true = 右侧语音条） */
+  isUserVoice: boolean;
+  /** 本地沙箱路径（用于上传失败重试 / 离线回放），可选 */
+  localPath?: string;
+}
+
 /** 聊天消息 —— UI 列表项 */
 export interface ChatMessage {
   role: string;
@@ -40,6 +61,8 @@ export interface ChatMessage {
   createdAt?: number;
   /** S41：本轮的 TTFT / TPS / KV 命中。仅 assistant 的最新一条会有 */
   metrics?: MsgMetrics;
+  /** P1：语音元数据（用户发的语音才有） */
+  audio?: VoiceMeta;
 }
 
 /** LLM 上下文记录 —— 发请求时构建的历史 */
@@ -64,4 +87,6 @@ export interface StoredMessage {
    * 旧数据没有此字段 → undefined → UI 自动不渲染（fmtMetrics 已判空）。
    */
   metrics?: MsgMetrics;
+  /** P1：语音元数据（用户发的语音才有）。旧数据没有 → undefined → 按普通文本渲染 */
+  audio?: VoiceMeta;
 }

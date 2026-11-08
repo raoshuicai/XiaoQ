@@ -15,7 +15,7 @@
  */
 
 import { common } from '@kit.AbilityKit';
-import { ChatMessage, ChatRecord, StoredMessage, MsgMetrics } from '../models/ChatModels.ets';
+import { ChatMessage, ChatRecord, StoredMessage, MsgMetrics, VoiceMeta } from '../models/ChatModels.ets';
 import { Clock, NO_TIMER, systemClock } from '../core/Timers.ets';
 import {
   hasSessionMessages, loadSessionMessages, saveSessionMessages,
@@ -61,13 +61,15 @@ export class ChatService {
    * 追加一条消息。
    * @param metrics S41：可选，本轮的 TTFT / TPS / KV 命中（只挂在 assistant 上）
    */
-  public append(role: string, content: string, metrics?: MsgMetrics): void {
+  public append(role: string, content: string, metrics?: MsgMetrics,
+                audio?: VoiceMeta): void {
     const msg: ChatMessage = {
       role: role,
       content: content,
       msg_id: this.newMsgId(),
       createdAt: Date.now(),       // S21：记下时间，气泡上方要显示
-      metrics: metrics             // S41：性能指标（可为 undefined）
+      metrics: metrics,            // S41：性能指标（可为 undefined）
+      audio: audio                 // P1：语音元数据（可为 undefined）
     };
     this.messages.push(msg);
     this.scheduleSave();
@@ -386,6 +388,7 @@ export class ChatService {
         msg_id: stored.msg_id,
         createdAt: created,
         metrics: stored.metrics,       // 旧数据为 undefined，UI 自动隐藏
+        audio: stored.audio,           // P1：语音元数据（旧数据为 undefined）
       });
     }
     return out;
@@ -407,6 +410,7 @@ export class ChatService {
         msg_id: list[i].msg_id,
         createdAt: list[i].createdAt,   // S44：时间戳持久化
         metrics: list[i].metrics,       // S44：性能指标持久化
+        audio: list[i].audio,           // P1：语音元数据持久化
       });
     }
     return out;

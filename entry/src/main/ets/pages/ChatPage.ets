@@ -15,7 +15,7 @@ import { chatService } from '../services/ChatService.ets';
 import { ChatStreamEngine, StreamCallbacks, STALL_TIMEOUT_NEW_SESSION } from '../core/ChatStreamEngine.ets';
 import { systemClock } from '../core/Timers.ets';
 // S1：所有共享类型统一从 models 层引入（HermesApi/PreferencesHelper/WebSocketClient 不再自行定义）
-import { ChatMessage, ChatRecord, MsgMetrics } from '../models/ChatModels.ets';
+import { ChatMessage, ChatRecord, MsgMetrics, VoiceMeta } from '../models/ChatModels.ets';
 import { WsMessage } from '../models/WsModels.ets';
 // S5：网络检测收口到 ApiConfig
 import { apiConfig } from '../core/ApiConfig.ets';
@@ -38,9 +38,13 @@ import { sessionService } from '../services/SessionService.ets';
 import { MessagePage, SessionMessage, SessionMeta } from '../models/SessionModels.ets';
 // S5/S12：REST 客户端（拉会话历史要显式 configure）
 import { rest } from '../core/HermesRest.ets';
+// P1：语音消息 —— 录音（VoiceRecorder）+ 上传转写（VoiceService）+ 调试用「选本地音频」
+import { picker, fileIo as fs } from '@kit.CoreFileKit';
+import { voiceRecorder, RecResult } from '../services/VoiceRecorder.ets';
+import { voiceService } from '../services/VoiceService.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.16';
+const APP_VERSION: string = '3.9.17';
 
 // V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
 const TODAY_KEY: string = 'xiaoq_chat_today_key';
@@ -50,6 +54,10 @@ const TODAY_KEY: string = 'xiaoq_chat_today_key';
 struct ChatPage {
   @State messageList: ChatMessage[] = [];
   @State inputText: string = '';
+  /** P1：语音输入模式（InputBar 的 TextArea ↔ 按住说话） */
+  @State voiceMode: boolean = false;
+  /** P1：正在上传+转写（期间禁止再录、按钮显示「识别中…」） */
+  @State voiceSending: boolean = false;
   @State isLoading: boolean = false;
   @State isStreaming: boolean = false;
   @State streamContent: string = '';
@@ -271,6 +279,129 @@ struct ChatPage {
     const tag: string = '[文件] ' + url;
     this.inputText = this.inputText.length > 0 ? (this.inputText + '\n' + tag) : tag;
     this.showToast('已上传，可补充说明后发送');
+  }
+
+  // ─────────────────── P1：语音消息 ───────────────────
+
+  /**
+   * 切换 文本 ↔ 语音 输入模式。
+   * ⚠️ 麦克风权限在这里申请，**不能**放到长按里 —— 系统权限弹窗会让底层触摸序列
+   *    派发 TouchType.Cancel，刚开口说的话被当成"取消"丢掉。
+   */
+  private async toggleVoiceMode(): Promise<void> {
+    if (this.voiceMode) {
+      this.voiceMode = false;
+      return;
+    }
+    const ctx: common.UIAbilityContext =
+      this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const granted: boolean = await voiceRecorder.ensurePermission(ctx);
+    if (!granted) {
+      this.showToast('需要麦克风权限才能发语音消息');
+      return;
+    }
+    this.voiceMode = true;
+  }
+
+  /** 长按 150ms 后开始录音 */
+  private async startRecording(): Promise<void> {
+    const ctx: common.UIAbilityContext =
+      this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const ok: boolean = await voiceRecorder.start(ctx);
+    if (!ok) {
+      this.showToast('录音启动失败：' + voiceRecorder.lastError());
+    }
+  }
+
+  /** 松手：取消 或 停止→上传→转写→发送 */
+  private async endRecording(cancelled: boolean): Promise<void> {
+    if (cancelled) {
+      await voiceRecorder.cancel();
+      return;
+    }
+    const rec: RecResult | null = await voiceRecorder.stop();
+    if (rec === null) {
+      const err: string = voiceRecorder.lastError();
+      this.showToast(err.length > 0 ? err : '说话时间太短');
+      return;
+    }
+    await this.sendVoiceFile(rec);
+  }
+
+  /**
+   * 上传 + 转写 + 发送。录音和「选音频文件」共用这一条链路。
+   * 失败时不删源文件（VoiceService 保留），重录/重选即可。
+   */
+  private async sendVoiceFile(rec: RecResult): Promise<void> {
+    if (this.voiceSending) {
+      return;
+    }
+    this.voiceSending = true;
+    this.showToast('正在识别语音…');
+    try {
+      const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
+      const meta: VoiceMeta | null = await voiceService.process(ctx, rec);
+      if (meta === null) {
+        this.showToast('语音识别失败，请重试（网络或服务端不可用）');
+        return;
+      }
+      await this.sendMessage(meta, meta.transcript);
+    } finally {
+      this.voiceSending = false;
+    }
+  }
+
+  /**
+   * P1 调试入口：从本地选一个音频文件，走与录音完全相同的 上传→转写→发送 链路。
+   *
+   * 存在的理由：模拟器上 AVRecorder 录不出音（实测 stop() 抛 5400103 IO error），
+   * 有了它，模拟器能把除"录音"外的整条链验完；真机录音出问题时也能靠它 10 秒分辨
+   * 是录音坏了还是后续链路坏了。
+   */
+  private async onPickAudio(): Promise<void> {
+    try {
+      const opts: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      opts.maxSelectNumber = 1;
+      opts.fileSuffixFilters = ['.m4a', '.mp3', '.wav', '.aac', '.ogg', '.opus'];
+      const p: picker.DocumentViewPicker = new picker.DocumentViewPicker();
+      const uris: string[] = await p.select(opts);
+      if (uris === undefined || uris.length === 0) {
+        return;
+      }
+      const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
+      const srcUri: string = uris[0];
+      const dot: number = srcUri.lastIndexOf('.');
+      const ext: string = dot >= 0 ? srcUri.substring(dot) : '.m4a';
+      const name: string = 'voice_' + Date.now().toString() + '_'
+        + Math.floor(Math.random() * 10000).toString() + ext;
+      const dir: string = ctx.filesDir + '/voice';
+      try {
+        if (!fs.accessSync(dir)) {
+          fs.mkdirSync(dir);
+        }
+      } catch (e) {
+        try {
+          fs.mkdirSync(dir);
+        } catch (x) {
+          console.error('mkdir voice failed');
+        }
+      }
+      const dstPath: string = dir + '/' + name;
+      const src: fs.File = fs.openSync(srcUri, fs.OpenMode.READ_ONLY);
+      const dst: fs.File = fs.openSync(dstPath,
+        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      fs.copyFileSync(src.fd, dst.fd);
+      fs.closeSync(dst);
+      fs.closeSync(src);
+
+      const rec: RecResult = new RecResult();
+      rec.path = dstPath;
+      rec.name = name;
+      rec.durationMs = 0;
+      await this.sendVoiceFile(rec);
+    } catch (e) {
+      this.showToast('选择音频失败：' + this.errText(e));
+    }
   }
 
   /**
@@ -860,8 +991,8 @@ struct ChatPage {
     }
   }
 
-  private async sendMessage(): Promise<void> {
-    const text: string = this.inputText.trim();
+  private async sendMessage(audio?: VoiceMeta, overrideText?: string): Promise<void> {
+    const text: string = (overrideText !== undefined ? overrideText : this.inputText).trim();
     if (text === '' || this.isLoading) {
       return;
     }
@@ -879,12 +1010,15 @@ struct ChatPage {
     const history: ChatRecord[] = chatService.buildHistoryForLlm();
 
     // 添加用户消息到界面
-    chatService.append('user', text);
+    chatService.append('user', text, undefined, audio);
     this.syncMessages();
     this.scrollToBottom();
     history.push({ role: 'user', content: text });
 
-    this.inputText = '';
+    // P1：语音消息不占用输入框 —— 只有打字发送才清空，避免把用户正在打的草稿清掉
+    if (overrideText === undefined) {
+      this.inputText = '';
+    }
     this.isLoading = true;
     // S3：isStreaming / streamContent / 停滞计时器 全部交给状态机
     // S12 修：**新会话（activeSessionId 为空）首条消息要用更长的停滞窗口** ——
@@ -995,6 +1129,8 @@ struct ChatPage {
           text: $inputText,
           loading: this.isLoading,
           yoloOn: this.yoloOn,
+          voiceMode: $voiceMode,
+          voiceSending: this.voiceSending,
           onToggleYolo: (): void => {
             this.toggleYolo();
           },
@@ -1006,6 +1142,18 @@ struct ChatPage {
           },
           onFile: (): void => {
             this.onMenuFile();
+          },
+          onPickAudio: (): void => {
+            this.onPickAudio();
+          },
+          onToggleVoiceMode: (): void => {
+            this.toggleVoiceMode();
+          },
+          onRecordStart: (): void => {
+            this.startRecording();
+          },
+          onRecordEnd: (cancelled: boolean): void => {
+            this.endRecording(cancelled);
           }
         })
 

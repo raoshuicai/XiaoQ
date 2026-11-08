@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "小Q"
+    },
+    {
+      "name": "microphone_reason",
+      "value": "录制语音消息时需要使用麦克风"
     }
   ]
 }

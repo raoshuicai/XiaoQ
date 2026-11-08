@@ -69,6 +69,22 @@ function fmtMetrics(m: MsgMetrics | undefined): string {
   return '⚡ ' + parts.join(' · ');
 }
 
+/**
+ * P1：语音条时长显示。规则：<60s → "5″"；≥60s → "1′05″"
+ */
+function fmtVoiceDur(ms: number | undefined): string {
+  if (ms === undefined || ms <= 0) {
+    return '';
+  }
+  const total: number = Math.round(ms / 1000);
+  if (total < 60) {
+    return total.toString() + '″';
+  }
+  const m: number = Math.floor(total / 60);
+  const s: number = total % 60;
+  return m.toString() + '′' + (s < 10 ? '0' + s.toString() : s.toString()) + '″';
+}
+
 @Component
 export struct MessageBubble {
   // V4-A7：跨天键（AppStorage 驱动重绘，绕开 ForEach 复用不刷新问题）
@@ -152,6 +168,24 @@ export struct MessageBubble {
             .fontColor($r('app.color.text_tertiary'))
             .margin({ top: 8 })
             .copyOption(CopyOptions.LocalDevice)
+        }
+
+        // P1：语音条 —— 用户发的语音才渲染（服务端消息库里没有 audio，历史拉回来就是纯文本）
+        if (this.message.audio !== undefined && this.message.audio.isUserVoice) {
+          Row({ space: 6 }) {
+            Text('🎤').fontSize(13)
+            Text(fmtVoiceDur(this.message.audio.durationMs))
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_primary'))
+            // P2 会在这里接播放键；P1 先只显示时长
+            Blank()
+          }
+          .width(96)
+          .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+          .backgroundColor($r('app.color.bg_input'))
+          .borderRadius(10)
+          .margin({ bottom: 6 })
         }
 
         Text(this.message.content)
