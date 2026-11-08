@@ -46,7 +46,7 @@ import { voiceService, TtsSeg } from '../services/VoiceService.ets';
 import { voicePlayer, VoicePlayerHooks, VoiceSeg } from '../services/VoicePlayer.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.25';
+const APP_VERSION: string = '3.9.26';
 
 // V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
 const TODAY_KEY: string = 'xiaoq_chat_today_key';
