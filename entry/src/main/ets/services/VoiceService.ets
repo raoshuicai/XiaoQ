@@ -63,7 +63,11 @@ export class VoiceService {
     }
     const meta: VoiceMeta = {
       url: '/api/upload/' + upName,
-      durationMs: asr.durationMs > 0 ? asr.durationMs : rec.durationMs,
+      // ⚠️ 时长以**客户端录音计时**为准。
+      //    SiliconFlow 对 m4a 返回的 usage.seconds 实测会给成 1（不管录了几秒），
+      //    用它会把 8 秒录音显示成「1″」（真机实测踩到）。
+      //    只有「选音频文件」那条路 rec.durationMs 才是 0，此时才退回用 ASR 的。
+      durationMs: rec.durationMs > 0 ? rec.durationMs : asr.durationMs,
       transcript: asr.text,
       isUserVoice: true,
       localPath: rec.path

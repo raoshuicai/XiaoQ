@@ -85,6 +85,12 @@ function fmtVoiceDur(ms: number | undefined): string {
   return m.toString() + '′' + (s < 10 ? '0' + s.toString() : s.toString()) + '″';
 }
 
+/** P4：归一化结果（正文 + 每个字符对应的原文下标） */
+class NormText {
+  text: string = '';
+  idx: number[] = [];
+}
+
 @Component
 export struct MessageBubble {
   // V4-A7：跨天键（AppStorage 驱动重绘，绕开 ForEach 复用不刷新问题）
@@ -100,38 +106,103 @@ export struct MessageBubble {
   /** P4：当前正在朗读的那一段的文本（用于高亮跟随） */
   @Prop playingSegText: string = '';
 
+  /** P4：点用户自己的语音条 —— 回放录音 */
+  onPlayUserVoice: (index: number) => void = () => {};
+
+  /** P4：高亮区间缓存（按段文本作 key，避免每次 build 都重算整条归一化） */
+  private cachedSeg: string = '';
+  private cachedRange: number[] = [];
+
   private isPlaying(): boolean {
-    return this.playingMsgId.length > 0 && this.message.msg_id === this.playingMsgId;
+    if (this.playingMsgId.length === 0) {
+      return false;
+    }
+    const mid: string = this.message.msg_id !== undefined ? this.message.msg_id : '';
+    // 小Q 的朗读用 msg_id 作 key；用户自己的语音回放用 'user:' + msg_id 前缀，
+    // 两者都在这里认，免得播放态显示不出来。
+    return this.playingMsgId === mid || this.playingMsgId === ('user:' + mid);
   }
 
   /**
-   * P4：当前该高亮的文本片段；不需要高亮时返回空串。
+   * P4：当前该高亮的区间 [start, end]；不需要高亮返回空数组。
    *
-   * ⚠️ 用 indexOf 在原文里找段文本，而不是维护「原文偏移」：
-   *    服务端切段前会清洗 Markdown（去 ** 、代码块、表格），清洗后的段文本
-   *    和原文不是逐字对齐的，硬存偏移必然错位。段文本本身是原文子串（大部分情况），
-   *    直接 indexOf 最省事；找不到（被清洗过）就不高亮，不影响播放。
+   * ⚠️ 为什么不能直接 `content.indexOf(segText)`：
+   *    服务端切段前会清洗 Markdown（去掉 ** ` # > [ ] ( ) 等符号并压缩空白），
+   *    所以段文本里没有这些符号、而原文里有 → indexOf 找不到。
+   *    真机实测表现：X 列表日报那种「**Karpathy** 把…」的句子全都不高亮，
+   *    只有纯文本段落能高亮，看起来就是「一会有一会没有」。
+   *
+   *    做法：两边都归一化（去符号 + 去空白）后再匹配，
+   *    再用归一化时记下的下标映射回**原文位置**，高亮原文那一整段（符号也包进去，
+   *    视觉上刚好是完整一句）。
    */
-  private hlText(): string {
+  private hlRange(): number[] {
     if (!this.isPlaying() || this.playingSegText.length < 2) {
-      return '';
+      return [];
     }
-    return this.message.content.indexOf(this.playingSegText) >= 0
-      ? this.playingSegText : '';
+    // 同一段的 build 会被反复触发（播放进度、其它状态变化），按段文本缓存结果
+    if (this.cachedSeg === this.playingSegText) {
+      return this.cachedRange;
+    }
+    this.cachedSeg = this.playingSegText;
+    this.cachedRange = [];
+
+    const normContent: NormText = this.normalizeKeepIndex(this.message.content);
+    const segNorm: string = this.normalizeKeepIndex(this.playingSegText).text;
+    if (segNorm.length < 2) {
+      return this.cachedRange;
+    }
+    const p: number = normContent.text.indexOf(segNorm);
+    if (p < 0 || p + segNorm.length - 1 >= normContent.idx.length) {
+      return this.cachedRange;
+    }
+    const start: number = normContent.idx[p];
+    const end: number = normContent.idx[p + segNorm.length - 1] + 1;
+    this.cachedRange = [start, end];
+    return this.cachedRange;
+  }
+
+  /**
+   * 去掉 Markdown 符号与空白，同时记录每个输出字符来自原文的哪个下标。
+   * 符号集合与 python 侧 `clean_for_tts` 的去符号规则对齐（多去几个也无妨，
+   * 只要 content 和 segText 用同一套规则，就能匹配上）。
+   */
+  private normalizeKeepIndex(text: string): NormText {
+    const out: NormText = new NormText();
+    const skip: string = '*`#>[]()_~|!';
+    let s: string = '';
+    const idx: number[] = [];
+    for (let i: number = 0; i < text.length; i++) {
+      const c: string = text.charAt(i);
+      const code: number = c.charCodeAt(0);
+      if (skip.indexOf(c) >= 0) {
+        continue;
+      }
+      // 空白也跳过（服务端会压空白）：空格 Tab CR LF
+      if (code === 32 || code === 9 || code === 13 || code === 10) {
+        continue;
+      }
+      s += c;
+      idx.push(i);
+    }
+    out.text = s;
+    out.idx = idx;
+    return out;
+  }
+
+  private hlText(): string {
+    const r: number[] = this.hlRange();
+    return r.length < 2 ? '' : this.message.content.substring(r[0], r[1]);
   }
 
   private hlBefore(): string {
-    const t: string = this.hlText();
-    return t.length === 0 ? '' : this.message.content.substring(0, this.message.content.indexOf(t));
+    const r: number[] = this.hlRange();
+    return r.length < 2 ? '' : this.message.content.substring(0, r[0]);
   }
 
   private hlAfter(): string {
-    const t: string = this.hlText();
-    if (t.length === 0) {
-      return '';
-    }
-    const i: number = this.message.content.indexOf(t) + t.length;
-    return this.message.content.substring(i);
+    const r: number[] = this.hlRange();
+    return r.length < 2 ? '' : this.message.content.substring(r[1]);
   }
 
   build() {
@@ -213,19 +284,29 @@ export struct MessageBubble {
         // P1：语音条 —— 用户发的语音才渲染（服务端消息库里没有 audio，历史拉回来就是纯文本）
         if (this.message.audio !== undefined && this.message.audio.isUserVoice) {
           Row({ space: 6 }) {
-            Text('🎤').fontSize(13)
+            Image($r('app.media.icon_speaker_black'))
+              .width(13)
+              .height(13)
+              .objectFit(ImageFit.Contain)
+              .opacity(0.7)
             Text(fmtVoiceDur(this.message.audio.durationMs))
               .fontSize(13)
               .fontWeight(FontWeight.Medium)
               .fontColor($r('app.color.text_primary'))
-            // P2 会在这里接播放键；P1 先只显示时长
             Blank()
+            // P4：播放态提示（整条可点，不用精确点到这个小图标）
+            Text(this.isPlaying() ? '⏸' : '▶')
+              .fontSize(11)
+              .fontColor(this.isPlaying() ? $r('app.color.brand') : $r('app.color.text_tertiary'))
           }
-          .width(96)
+          .width(104)
           .padding({ left: 10, right: 10, top: 5, bottom: 5 })
           .backgroundColor($r('app.color.bg_input'))
           .borderRadius(10)
           .margin({ bottom: 6 })
+          .onClick(() => {
+            this.onPlayUserVoice(this.index);
+          })
         }
 
         // P4：朗读中 → 用 Span 把当前句染成主题色（高亮跟随）；否则普通 Text

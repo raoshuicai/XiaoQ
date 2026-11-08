@@ -46,7 +46,7 @@ import { voiceService, TtsSeg } from '../services/VoiceService.ets';
 import { voicePlayer, VoicePlayerHooks, VoiceSeg } from '../services/VoicePlayer.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.27';
+const APP_VERSION: string = '3.9.28';
 
 // V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
 const TODAY_KEY: string = 'xiaoq_chat_today_key';
@@ -458,6 +458,37 @@ struct ChatPage {
       (turn: string): Promise<TtsSeg[]> => voiceService.fetchSegments(turn),
       (relative: string): string => rest.getBaseUrl() + relative
     );
+  }
+
+  /**
+   * P4：回放用户自己的语音消息（单段，直接播 /api/upload/<name>）。
+   * 用 'user:' 前缀和「小Q 朗读」的 key 区分开，两条不会互相抢播放器。
+   */
+  private async onPlayUserVoiceTap(index: number): Promise<void> {
+    const list: ChatMessage[] = this.messageList;
+    if (index < 0 || index >= list.length) {
+      return;
+    }
+    const msg: ChatMessage = list[index];
+    if (msg.audio === undefined || msg.audio.url.length === 0) {
+      return;
+    }
+    const mid: string = msg.msg_id !== undefined ? msg.msg_id : ('idx-' + index.toString());
+    const key: string = 'user:' + mid;
+    if (this.playingMsgId === key) {
+      await voicePlayer.stop();
+      this.playingMsgId = '';
+      return;
+    }
+    await voicePlayer.stop();
+    const seg: VoiceSeg = new VoiceSeg();
+    seg.idx = 0;
+    seg.text = msg.audio.transcript;
+    seg.url = msg.audio.url;
+    seg.status = 'ready';
+    this.playingMsgId = key;
+    this.playingSegText = '';
+    await voicePlayer.start(key, [seg]);
   }
 
   /** P4：按 msgId + 段序号取段文本（高亮跟随用） */
@@ -1319,6 +1350,9 @@ struct ChatPage {
                 playingSegText: this.playingSegText,
                 onPlayVoice: (i: number) => {
                   this.onPlayVoiceTap(i);
+                },
+                onPlayUserVoice: (i: number) => {
+                  this.onPlayUserVoiceTap(i);
                 },
                 onDelete: (i: number) => {
                   this.deleteMsgIndex = i;
