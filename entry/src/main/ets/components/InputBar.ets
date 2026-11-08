@@ -177,14 +177,17 @@ export struct InputBar {
               })
 
             // ─────── P3：「🔊」自动朗读总闸（在 Y 右侧）───────
-            // 开：主题色底 + 白图标；关：白底/灰底 + 黑图标。
-            // ⚠️ 关的时候**不要用 opacity**（用户反馈：整块半透明会让底色发灰、
-            //    图标看着像压在别的层下面）—— 与 Y 完全同规则，只靠底色区分状态。
-            Text('🔊')
-              .fontSize(15)
-              .textAlign(TextAlign.Center)
+            // 开：主题色底 + 白线图标；关：白底/灰底 + 黑线图标。
+            // ⚠️ 用 SVG 双色版而不是 fillColor：Feather 系图标是 stroke 风格，
+            //    Image.fillColor 只作用于 SVG 的 fill，对 stroke 无效（会保持原色）。
+            //    所以准备黑白两份，按状态切 src。
+            Image(this.autoSpeak
+              ? $r('app.media.icon_speaker_white')
+              : $r('app.media.icon_speaker_black'))
               .width(32)
               .height(32)
+              .padding(7)
+              .objectFit(ImageFit.Contain)
               .backgroundColor(this.autoSpeak
                 ? $r('app.color.brand')
                 : (this.voiceMode ? $r('app.color.bg_input') : $r('app.color.btn_circle_bg')))
@@ -197,11 +200,14 @@ export struct InputBar {
             Blank()
 
             // ─────── P1：「🎤」语音输入（在 ↑ 左侧）───────
-            Text('🎤')
-              .fontSize(16)
-              .textAlign(TextAlign.Center)
+            // 图标用 C 组线性矢量（volume-2 / mic），黑白双份按状态切 src
+            Image(this.voiceMode
+              ? $r('app.media.icon_mic_white')
+              : $r('app.media.icon_mic_black'))
               .width(32)
               .height(32)
+              .padding(7)
+              .objectFit(ImageFit.Contain)
               .backgroundColor(this.voiceMode ? $r('app.color.brand') : $r('app.color.btn_circle_bg'))
               .borderRadius(16)
               .margin({ right: 8 })
