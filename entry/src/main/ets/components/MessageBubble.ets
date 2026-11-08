@@ -204,8 +204,22 @@ export struct MessageBubble {
 
         // P2：朗读按钮（只挂在小Q 的回复上；用户自己的语音条已有 🎤 时长）
         if (this.message.role === 'assistant' && this.message.content.trim().length > 0) {
-          Row() {
-            Text(this.isPlaying() ? '⏹ 停止' : '🔊 朗读')
+          Row({ space: 4 }) {
+            if (this.isPlaying()) {
+              // 播放中：方块停止符
+              Text('⏹')
+                .fontSize(9)
+                .fontColor($r('app.color.brand'))
+            } else {
+              // 未播放：矢量喇叭图标（与输入栏同一套 Feather 线条图标）
+              Image($r('app.media.icon_speaker_black'))
+                .width(13)
+                .height(13)
+                .objectFit(ImageFit.Contain)
+                .opacity(0.7)       // 只有图标半透明（模拟 text_tertiary 灰），不影响整块
+                                    // 12px/0.55 时实测偏糊，放大到 13px 更清楚
+            }
+            Text(this.isPlaying() ? '停止' : '朗读')
               .fontSize(11)
               .fontWeight(this.isPlaying() ? FontWeight.Medium : FontWeight.Normal)
               .fontColor(this.isPlaying() ? $r('app.color.brand') : $r('app.color.text_tertiary'))

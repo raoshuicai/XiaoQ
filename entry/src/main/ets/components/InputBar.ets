@@ -162,7 +162,9 @@ export struct InputBar {
             // ─────── S43：「Y」YOLO 气泡（在 ＋ 右侧）───────
             Text('Y')
               .fontSize(15)
-              .fontWeight(FontWeight.Bold)
+              // ⚠️ 不加 Bold：用户反馈 Y/↑ 的笔画比 ＋ 和矢量图标粗，视觉分量过重
+              //    （＋ 是 fontSize 20 默认粗细，Y 用 Bold 会明显更实）
+
               .fontColor(this.yoloOn ? $r('app.color.text_on_brand') : $r('app.color.btn_circle_fg'))
               .textAlign(TextAlign.Center)
               .width(32)
@@ -219,8 +221,9 @@ export struct InputBar {
               })
 
             Text('↑')
-              .fontSize(18)
-              .fontWeight(FontWeight.Bold)
+              .fontSize(19)
+              // 同上：去掉 Bold，与 ＋（fontSize 20 默认粗细）对齐
+
               .fontColor(this.canSend() ? $r('app.color.text_on_brand') : $r('app.color.btn_circle_fg'))
               .textAlign(TextAlign.Center)
               .width(32)
