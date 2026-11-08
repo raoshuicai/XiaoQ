@@ -84,6 +84,7 @@ export class WsService {
       ['chat_started', Events.CHAT_STARTED],
       ['chat_progress', Events.CHAT_PROGRESS],
       ['chat_thinking', Events.CHAT_THINKING],  // V4-A5
+      ['chat_voice_ready', Events.CHAT_VOICE_READY],   // P3：语音段就绪
       ['approve_request', Events.APPROVE_REQUEST],
       ['notification', Events.NOTIFICATION]
     ]);

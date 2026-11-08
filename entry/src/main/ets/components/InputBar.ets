@@ -44,10 +44,14 @@ export struct InputBar {
   @Link voiceMode: boolean;
   /** P1：是否正在上传+转写（转写中禁止再录） */
   @Prop voiceSending: boolean = false;
+  /** P3：🔊 自动朗读总闸（用户在 Y 右边点开/关掉） */
+  @Prop autoSpeak: boolean = false;
 
   onSend: () => void = () => {};
   /** S43：点击 Y 气泡 —— 切换 YOLO */
   onToggleYolo: () => void = () => {};
+  /** P3：点击 🔊 气泡 —— 切换自动朗读 */
+  onToggleAutoSpeak: () => void = () => {};
   onImage: () => void = () => {};
   onFile: () => void = () => {};
   /** P1 调试入口：从本地选音频文件，走与录音相同的上传/转写链路 */
@@ -166,6 +170,21 @@ export struct InputBar {
               .margin({ left: 8 })
               .onClick(() => {
                 this.onToggleYolo();
+              })
+
+            // ─────── P3：「🔊」自动朗读总闸（在 Y 右侧）───────
+            // 开：主题色底 + 白色图标；关：白底灰图标（与 Y 的配色规则一致）
+            Text('🔊')
+              .fontSize(15)
+              .textAlign(TextAlign.Center)
+              .width(32)
+              .height(32)
+              .backgroundColor(this.autoSpeak ? $r('app.color.brand') : $r('app.color.btn_circle_bg'))
+              .borderRadius(16)
+              .opacity(this.autoSpeak ? 1 : 0.55)
+              .margin({ left: 8 })
+              .onClick(() => {
+                this.onToggleAutoSpeak();
               })
 
             Blank()

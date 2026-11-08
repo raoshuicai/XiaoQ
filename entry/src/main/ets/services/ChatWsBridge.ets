@@ -31,6 +31,8 @@ export class WsBridgeHooks {
   onChatStarted: (msg: WsMessage) => void = () => {};
   /** S45-A：工具执行进度（长工具轮期间给用户反馈） */
   onProgress: (msg: WsMessage) => void = () => {};
+  /** P3：本轮语音分段就绪（携带 turn_key + segments，用于自动朗读） */
+  onVoiceReady: (msg: WsMessage) => void = () => {};
 }
 
 export class ChatWsBridge {
@@ -96,6 +98,11 @@ export class ChatWsBridge {
     // S45-A：工具执行进度 → 页面显示（长工具轮期间用户不再只看到"思考中"）
     this.unsubs.push(eventBus.on(Events.CHAT_PROGRESS, (m: WsMessage): void => {
       hooks.onProgress(m);
+    }));
+
+    // P3：语音分段就绪 → 页面按 turn_key 找到本轮回复并自动开播
+    this.unsubs.push(eventBus.on(Events.CHAT_VOICE_READY, (m: WsMessage): void => {
+      hooks.onVoiceReady(m);
     }));
 
     // S12：本轮所属会话确认（新建会话时 APP 据此记住 ID）

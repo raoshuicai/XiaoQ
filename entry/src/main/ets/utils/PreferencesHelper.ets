@@ -64,10 +64,36 @@ export async function loadApiKey(context: common.Context): Promise<string> {
   }
 }
 
+// ─────────────── P3：🔊 自动朗读开关 ───────────────
+// 语义（用户 7 条设计原则）：这是**唯一总闸**，默认关。
+//   🔊 开  → 发语音也朗读、打字也朗读
+//   🔉 关  → 一律只回文字（气泡上的「朗读」按钮仍可手动点）
+const KEY_VOICE_AUTO_SPEAK: string = 'voice_auto_speak';
+
+export async function saveVoiceAutoSpeak(context: common.Context, enabled: boolean): Promise<void> {
+  try {
+    const pref: preferences.Preferences = await getPreferences(context);
+    await pref.put(KEY_VOICE_AUTO_SPEAK, enabled);
+    await pref.flush();
+  } catch (error) {
+    console.error('saveVoiceAutoSpeak failed: ' + error);
+  }
+}
+
+export async function loadVoiceAutoSpeak(context: common.Context): Promise<boolean> {
+  try {
+    const pref: preferences.Preferences = await getPreferences(context);
+    const valueObj: preferences.ValueType = await pref.get(KEY_VOICE_AUTO_SPEAK, false);
+    return valueObj as boolean;
+  } catch (error) {
+    console.error('loadVoiceAutoSpeak failed: ' + error);
+    return false;
+  }
+}
+
 // ─────────────── 上次使用的会话（S15）───────────────
 
 const KEY_ACTIVE_SESSION: string = 'active_session_id';
-
 /**
  * 记住"上次用的会话"。
  *

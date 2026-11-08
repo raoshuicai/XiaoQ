@@ -91,6 +91,8 @@ export class Events {
   static readonly CHAT_SYNC_PENDING: string = 'chat.sync_pending';
   /** S12：服务端确认了本轮所属会话（新建会话时 APP 据此记住 ID） */
   static readonly CHAT_STARTED: string = 'chat.started';
+  /** P3：chat_voice_ready —— 本轮语音分段全部就绪，可以开播 */
+  static readonly CHAT_VOICE_READY: string = 'chat.voice_ready';
   static readonly APPROVE_REQUEST: string = 'approve.request';
   static readonly NOTIFICATION: string = 'notification';
 }

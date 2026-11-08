@@ -60,10 +60,18 @@ export interface WsMessage {
 
   // 性能指标（S41）：chat_done 帧附带
   metrics?: MsgMetrics;
-  // 断点续流（方案三）
+  /** 断点续流（方案三） */
   seq?: number;           // token 序列号
   last_seq?: number;      // 客户端最后收到的 seq
   caught_up?: number;     // sync_resume 追回的 token 数
+
+  // ── P3：语音 ──
+  /** chat 帧：本轮是否要自动朗读（客户端 🔊 开关状态） */
+  auto_speak?: boolean;
+  /** chat_voice_ready 帧：本轮语音的轮次标识（= 客户端发帧时的 client_msg_id） */
+  turn_key?: string;
+  /** chat_voice_ready 帧：段清单 [{idx, text, url, duration_ms, status}] */
+  segments?: Object[];
 }
 
 export type WsCallback = (msg: WsMessage) => void;

@@ -3,7 +3,7 @@ import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { FontSize, Radius, Space, Size } from '../core/Theme.ets';
 import { HermesApi } from '../utils/HermesApi.ets';
-import { saveApiKey, loadApiKey, getOrCreateDeviceId, loadActiveSessionId, saveActiveSessionId } from '../utils/PreferencesHelper.ets';
+import { saveApiKey, loadApiKey, getOrCreateDeviceId, loadActiveSessionId, saveActiveSessionId, saveVoiceAutoSpeak, loadVoiceAutoSpeak } from '../utils/PreferencesHelper.ets';
 // S23：本地图片/文件选择 + 上传
 import { mediaPicker, PickedItem } from '../services/MediaPicker.ets';
 // S2/S7：WS 事件订阅 + 协议分发下沉到 ChatWsBridge（连接控制仍在 wsService）
@@ -46,7 +46,7 @@ import { voiceService, TtsSeg } from '../services/VoiceService.ets';
 import { voicePlayer, VoicePlayerHooks, VoiceSeg } from '../services/VoicePlayer.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.20';
+const APP_VERSION: string = '3.9.21';
 
 // V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
 const TODAY_KEY: string = 'xiaoq_chat_today_key';
@@ -62,6 +62,10 @@ struct ChatPage {
   @State voiceSending: boolean = false;
   /** P2：正在播放的那条回复的 msg_id（空串 = 没在播） */
   @State playingMsgId: string = '';
+  /** P3：🔊 自动朗读总闸（持久化；默认关） */
+  @State autoSpeak: boolean = false;
+  /** P3：服务端预合成的段清单缓存（assistant msg_id → segments），手动播放直接复用不重复合成 */
+  private voiceSegCache: Map<string, TtsSeg[]> = new Map<string, TtsSeg[]>();
   @State isLoading: boolean = false;
   @State isStreaming: boolean = false;
   @State streamContent: string = '';
@@ -455,6 +459,14 @@ struct ChatPage {
     }
 
     await voicePlayer.stop();
+
+    // P3：本轮回复的语音如果已经由服务端流式预合成过 → 直接复用，不再请求
+    const cached: TtsSeg[] | undefined = this.voiceSegCache.get(msgId);
+    if (cached !== undefined && cached.length > 0) {
+      await this.playSegs(msgId, cached);
+      return;
+    }
+
     this.showToast('正在生成语音…');
     const segs: TtsSeg[] = await voiceService.prepareTts(msg.content, msgId);
     if (segs.length === 0) {
@@ -463,6 +475,12 @@ struct ChatPage {
       return;
     }
 
+    this.voiceSegCache.set(msgId, segs);
+    await this.playSegs(msgId, segs);
+  }
+
+  /** 把 TtsSeg 转成播放器要的 VoiceSeg 并开播 */
+  private async playSegs(msgId: string, segs: TtsSeg[]): Promise<void> {
     const vsegs: VoiceSeg[] = [];
     for (let i: number = 0; i < segs.length; i++) {
       const s: TtsSeg = segs[i];
@@ -476,6 +494,87 @@ struct ChatPage {
     }
     this.playingMsgId = msgId;
     await voicePlayer.start(msgId, vsegs);
+  }
+
+  /**
+   * P3：服务端把本轮语音全部合成完了（流式预合成，边生成边合成）。
+   *
+   * turn_key 是客户端发 chat 帧时的 client_msg_id，一条流只产出一条回复，
+   * 所以拿「最后一条有内容的 assistant 消息」就是这一轮。
+   * 段清单顺手缓存起来，用户之后手动点同一条的「朗读」直接复用，不重复合成。
+   *
+   * ⚠️ autoSpeak 可能在这期间被用户关掉 → 只缓存不播。
+   */
+  private handleVoiceReady(msg: WsMessage): void {
+    const sid: string = (msg.session_id as string) ?? '';
+    if (sid.length > 0 && this.activeSessionId.length > 0 && sid !== this.activeSessionId) {
+      return;                       // 别的会话的语音，不在当前页播
+    }
+    const segs: TtsSeg[] = this.parseSegments(msg.segments);
+    if (segs.length === 0) {
+      return;
+    }
+    let target: ChatMessage | undefined = undefined;
+    let targetIdx: number = -1;
+    for (let i: number = this.messageList.length - 1; i >= 0; i--) {
+      const m: ChatMessage = this.messageList[i];
+      if (m.role === 'assistant' && m.content.trim().length > 0) {
+        target = m;
+        targetIdx = i;
+        break;
+      }
+    }
+    if (target === undefined) {
+      return;
+    }
+    const msgId: string = target.msg_id !== undefined && target.msg_id.length > 0
+      ? target.msg_id : ('idx-' + targetIdx.toString());
+    this.voiceSegCache.set(msgId, segs);
+    console.info('[Voice] ready turn=' + ((msg.turn_key as string) ?? '')
+      + ' segs=' + segs.length + ' autoSpeak=' + String(this.autoSpeak));
+    if (!this.autoSpeak) {
+      return;                       // 🔉 关：只缓存，等用户手动点
+    }
+    this.playSegs(msgId, segs).catch((e: Error): void => {
+      console.error('[Voice] autoplay failed: ' + e.message);
+    });
+  }
+
+  /** WsMessage.segments（Object[]）→ TtsSeg[] */
+  private parseSegments(raw: Object[] | undefined): TtsSeg[] {
+    const out: TtsSeg[] = [];
+    if (raw === undefined || raw === null) {
+      return out;
+    }
+    for (let i: number = 0; i < raw.length; i++) {
+      const item: Object = raw[i];
+      if (item === null || item === undefined) {
+        continue;
+      }
+      const rec: Record<string, Object> = item as Record<string, Object>;
+      const seg: TtsSeg = new TtsSeg();
+      seg.idx = rec['idx'] !== undefined ? Number(rec['idx']) : i;
+      seg.text = rec['text'] !== undefined ? String(rec['text']) : '';
+      seg.url = rec['url'] !== undefined ? String(rec['url']) : '';
+      seg.durationMs = rec['duration_ms'] !== undefined ? Number(rec['duration_ms']) : 0;
+      seg.status = rec['status'] !== undefined ? String(rec['status']) : 'ready';
+      if (seg.url.length > 0) {
+        out.push(seg);
+      }
+    }
+    return out;
+  }
+
+  /** P3：切换 🔊 自动朗读总闸（持久化） */
+  private async toggleAutoSpeak(): Promise<void> {
+    this.autoSpeak = !this.autoSpeak;
+    const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
+    await saveVoiceAutoSpeak(ctx, this.autoSpeak);
+    this.showToast(this.autoSpeak ? '已开启：回复会自动朗读' : '已关闭自动朗读');
+    if (!this.autoSpeak) {
+      await voicePlayer.stop();
+      this.playingMsgId = '';
+    }
   }
 
   /**
@@ -525,6 +624,10 @@ struct ChatPage {
       this.syncMessages();
       // S9：未读角标 +1（服务端已落库，这里只做本地即时反馈）
       notifyService.bumpUnread();
+    };
+    // P3：语音分段就绪 —— 按 turn_key 找到本轮回复，自动开播
+    hooks.onVoiceReady = (msg: WsMessage): void => {
+      this.handleVoiceReady(msg);
     };
     // S45-A：工具进度 —— running 加入列表 / completed 移除 / stream_end 全清
     hooks.onProgress = (msg: WsMessage): void => {
@@ -771,6 +874,12 @@ struct ChatPage {
     });
     // S12 修：会话列表页要用的 Context（切换会话后重载消息）
     this.appCtx = ctx;
+    // P3：加载 🔊 开关（默认关；跨会话保持）
+    loadVoiceAutoSpeak(ctx).then((v: boolean): void => {
+      this.autoSpeak = v;
+    }).catch((e: Error): void => {
+      console.error('load autoSpeak failed: ' + e.message);
+    });
     // 注：曾尝试用 @kit.NetworkKit 的 connection.on('netConnectionStateChange') 做网络监听，
     // 但该 API 在 API 24 的名字/类型已变化（connection.on / NetConnectionStateChangeInfo
     // / NetConnectionState 均不存在），编译不过。当前改用两处主动自检覆盖同样场景：
@@ -1112,11 +1221,15 @@ struct ChatPage {
     // V4-A6：幂等键挂帧（N3）—— 每条新消息一律新 id；
     //   未连接时本帧进 pendingQueue，重连排空天然复用同一 id（同帧重发幂等）；
     //   禁止成员变量式 pendingMsgId 复用（回执丢失会让下一条新消息被服务端当重复吞掉）。
+    // P3：先定一个 id，同时用于幂等键和语音轮次标识（服务端 chat_voice_ready
+    //     会把这个值原样带回来，客户端据此认领"哪条回复的语音"）
+    const _chatMsgId: string = chatService.newMsgId();
     wsService.send({
       type: 'chat',
       messages: history,
       session_id: this.activeSessionId,
-      client_msg_id: chatService.newMsgId()
+      client_msg_id: _chatMsgId,
+      auto_speak: this.autoSpeak
     });
   }
   build() {
@@ -1211,6 +1324,10 @@ struct ChatPage {
           yoloOn: this.yoloOn,
           voiceMode: $voiceMode,
           voiceSending: this.voiceSending,
+          autoSpeak: this.autoSpeak,
+          onToggleAutoSpeak: (): void => {
+            this.toggleAutoSpeak();
+          },
           onToggleYolo: (): void => {
             this.toggleYolo();
           },
