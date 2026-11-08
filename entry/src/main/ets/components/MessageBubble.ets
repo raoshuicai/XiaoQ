@@ -95,11 +95,43 @@ export struct MessageBubble {
   onDelete: (index: number) => void = () => {};
   /** P2：点「朗读」（传本条消息的索引） */
   onPlayVoice: (index: number) => void = () => {};
-  /** P2：正在播放的那条消息的 msg_id（空串 = 没在播） */
+  /** P3：正在播放的那条消息的 msg_id（空串 = 没在播） */
   @Prop playingMsgId: string = '';
+  /** P4：当前正在朗读的那一段的文本（用于高亮跟随） */
+  @Prop playingSegText: string = '';
 
   private isPlaying(): boolean {
     return this.playingMsgId.length > 0 && this.message.msg_id === this.playingMsgId;
+  }
+
+  /**
+   * P4：当前该高亮的文本片段；不需要高亮时返回空串。
+   *
+   * ⚠️ 用 indexOf 在原文里找段文本，而不是维护「原文偏移」：
+   *    服务端切段前会清洗 Markdown（去 ** 、代码块、表格），清洗后的段文本
+   *    和原文不是逐字对齐的，硬存偏移必然错位。段文本本身是原文子串（大部分情况），
+   *    直接 indexOf 最省事；找不到（被清洗过）就不高亮，不影响播放。
+   */
+  private hlText(): string {
+    if (!this.isPlaying() || this.playingSegText.length < 2) {
+      return '';
+    }
+    return this.message.content.indexOf(this.playingSegText) >= 0
+      ? this.playingSegText : '';
+  }
+
+  private hlBefore(): string {
+    const t: string = this.hlText();
+    return t.length === 0 ? '' : this.message.content.substring(0, this.message.content.indexOf(t));
+  }
+
+  private hlAfter(): string {
+    const t: string = this.hlText();
+    if (t.length === 0) {
+      return '';
+    }
+    const i: number = this.message.content.indexOf(t) + t.length;
+    return this.message.content.substring(i);
   }
 
   build() {
@@ -196,11 +228,26 @@ export struct MessageBubble {
           .margin({ bottom: 6 })
         }
 
-        Text(this.message.content)
+        // P4：朗读中 → 用 Span 把当前句染成主题色（高亮跟随）；否则普通 Text
+        if (this.hlText().length > 0) {
+          Text() {
+            Span(this.hlBefore())
+            Span(this.hlText())
+              .fontColor($r('app.color.brand'))
+              .fontWeight(FontWeight.Medium)
+            Span(this.hlAfter())
+          }
           .fontSize(15)
           .fontColor(this.message.role === 'user' ? $r('app.color.bubble_user_text') : $r('app.color.bubble_bot_text'))
           .lineHeight(22)
           .copyOption(CopyOptions.LocalDevice)
+        } else {
+          Text(this.message.content)
+            .fontSize(15)
+            .fontColor(this.message.role === 'user' ? $r('app.color.bubble_user_text') : $r('app.color.bubble_bot_text'))
+            .lineHeight(22)
+            .copyOption(CopyOptions.LocalDevice)
+        }
 
         // P2：朗读按钮（只挂在小Q 的回复上；用户自己的语音条已有 🎤 时长）
         if (this.message.role === 'assistant' && this.message.content.trim().length > 0) {

@@ -46,10 +46,14 @@ export struct InputBar {
   @Prop voiceSending: boolean = false;
   /** P3：🔊 自动朗读总闸（用户在 Y 右边点开/关掉） */
   @Prop autoSpeak: boolean = false;
+  /** P4：有语音发送失败、可重试 */
+  @Prop pendingVoice: boolean = false;
 
   onSend: () => void = () => {};
   /** S43：点击 Y 气泡 —— 切换 YOLO */
   onToggleYolo: () => void = () => {};
+  /** P4：点重试条 —— 重发上次失败的语音 */
+  onRetryVoice: () => void = () => {};
   /** P3：点击 🔊 气泡 —— 切换自动朗读 */
   onToggleAutoSpeak: () => void = () => {};
   onImage: () => void = () => {};
@@ -243,6 +247,22 @@ export struct InputBar {
           .padding({ left: 10, right: 10 })
         }
         .width('100%')
+
+        // P4：语音发送失败 → 重试条（点一下重发，不用重录）
+        if (this.pendingVoice) {
+          Row() {
+            Text('语音发送失败 · 点此重试')
+              .fontSize(12)
+              .fontColor('#DC2626')
+          }
+          .padding({ left: 14, right: 14, top: 6, bottom: 6 })
+          .backgroundColor('#FDECEC')
+          .borderRadius(12)
+          .margin({ top: 6 })
+          .onClick(() => {
+            this.onRetryVoice();
+          })
+        }
 
         // P1：录音状态提示（浮在输入栏下方）
         if (this.recState !== 'idle') {

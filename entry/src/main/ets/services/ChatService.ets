@@ -15,6 +15,7 @@
  */
 
 import { common } from '@kit.AbilityKit';
+import { fileIo as fs } from '@kit.CoreFileKit';
 import { ChatMessage, ChatRecord, StoredMessage, MsgMetrics, VoiceMeta } from '../models/ChatModels.ets';
 import { Clock, NO_TIMER, systemClock } from '../core/Timers.ets';
 import {
@@ -35,6 +36,8 @@ export class ChatService {
   private ctx: common.Context | null = null;
   private sessionId: string = '';
   private saveTimer: number = NO_TIMER;
+  /** P4：已清理过的本地录音路径（防重复 unlink） */
+  private purgedPaths: Set<string> = new Set<string>();
 
   constructor(clock: Clock) {
     this.clock = clock;
@@ -330,6 +333,25 @@ export class ChatService {
 
   // ─────────────────────────── 内部工具 ───────────────────────────
 
+  /**
+   * P4：删掉某条消息对应的本地录音文件。
+   * 用 purgedPaths 去重 —— toStored 每次防抖保存都会跑一遍，同一个文件不能反复 unlink。
+   */
+  private purgeAudioFile(msg: ChatMessage): void {
+    const p: string = msg.audio !== undefined && msg.audio.localPath !== undefined
+      ? msg.audio.localPath : '';
+    if (p.length === 0 || this.purgedPaths.has(p)) {
+      return;
+    }
+    this.purgedPaths.add(p);
+    try {
+      fs.unlinkSync(p);
+      console.info('[ChatService] 已清理淘汰消息的录音: ' + p);
+    } catch (e) {
+      // 文件本来就不在（重装/被系统清过）：忽略
+    }
+  }
+
   public newMsgId(): string {  // V4-A6：ChatPage 生成 client_msg_id 复用此格式（m-<毫秒>-<随机>）
     return 'm-' + Date.now().toString() + '-' + Math.floor(Math.random() * 100000).toString();
   }
@@ -403,6 +425,11 @@ export class ChatService {
   private toStored(list: ChatMessage[]): StoredMessage[] {
     const out: StoredMessage[] = [];
     const start: number = list.length > MAX_MESSAGES ? list.length - MAX_MESSAGES : 0;
+    // P4：被 200 条上限挤出去的消息，如果带本地录音文件就顺手删掉，
+    //     否则沙箱里的 voice/*.m4a 只增不减（一天几十条，长期几百 MB）。
+    for (let k: number = 0; k < start; k++) {
+      this.purgeAudioFile(list[k]);
+    }
     for (let i: number = start; i < list.length; i++) {
       out.push({
         role: list[i].role,

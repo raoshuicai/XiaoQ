@@ -46,7 +46,7 @@ import { voiceService, TtsSeg } from '../services/VoiceService.ets';
 import { voicePlayer, VoicePlayerHooks, VoiceSeg } from '../services/VoicePlayer.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.26';
+const APP_VERSION: string = '3.9.27';
 
 // V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
 const TODAY_KEY: string = 'xiaoq_chat_today_key';
@@ -62,6 +62,12 @@ struct ChatPage {
   @State voiceSending: boolean = false;
   /** P2：正在播放的那条回复的 msg_id（空串 = 没在播） */
   @State playingMsgId: string = '';
+  /** P4：当前正在朗读的那一段文本（交给气泡做高亮跟随） */
+  @State playingSegText: string = '';
+  /** P4：有语音发送失败、可重试 */
+  @State pendingVoice: boolean = false;
+  /** P4：失败待重试的录音（保留源文件，重试直接重发不用重录） */
+  private pendingRec: RecResult | undefined = undefined;
   /** P3：🔊 自动朗读总闸（持久化；默认关） */
   @State autoSpeak: boolean = false;
   /** P3：服务端预合成的段清单缓存（assistant msg_id → segments），手动播放直接复用不重复合成 */
@@ -350,13 +356,28 @@ struct ChatPage {
       const ctx: common.Context = this.getUIContext().getHostContext() as common.Context;
       const meta: VoiceMeta | null = await voiceService.process(ctx, rec);
       if (meta === null) {
-        this.showToast('语音识别失败，请重试（网络或服务端不可用）');
+        // P4：失败不丢文件 —— 存下来，输入栏上方出现「点此重试」，不用重录
+        this.pendingRec = rec;
+        this.pendingVoice = true;
+        this.showToast('语音发送失败，点下方的重试条可重发');
         return;
       }
+      this.pendingRec = undefined;
+      this.pendingVoice = false;
       await this.sendMessage(meta, meta.transcript);
     } finally {
       this.voiceSending = false;
     }
+  }
+
+  /** P4：重发上次失败的语音（复用同一个本地文件，不重录） */
+  private async retryPendingVoice(): Promise<void> {
+    const rec: RecResult | undefined = this.pendingRec;
+    if (rec === undefined) {
+      this.pendingVoice = false;
+      return;
+    }
+    await this.sendVoiceFile(rec);
   }
 
   /**
@@ -418,13 +439,18 @@ struct ChatPage {
   private bindVoicePlayer(): void {
     const hooks: VoicePlayerHooks = {
       onState: (state: string, segIdx: number): void => {
-        if (state === 'finished' || state === 'error') {
+        if (state === 'playing' && segIdx >= 0) {
+          // P4：把当前段的文本交给气泡做高亮跟随
+          this.playingSegText = this.segTextAt(this.playingMsgId, segIdx);
+        } else if (state === 'finished' || state === 'error') {
           this.playingMsgId = '';
+          this.playingSegText = '';
         }
       },
       onError: (msg: string): void => {
         this.showToast('播放失败：' + msg);
         this.playingMsgId = '';
+        this.playingSegText = '';
       }
     };
     voicePlayer.bind(
@@ -432,6 +458,20 @@ struct ChatPage {
       (turn: string): Promise<TtsSeg[]> => voiceService.fetchSegments(turn),
       (relative: string): string => rest.getBaseUrl() + relative
     );
+  }
+
+  /** P4：按 msgId + 段序号取段文本（高亮跟随用） */
+  private segTextAt(msgId: string, idx: number): string {
+    const segs: TtsSeg[] | undefined = this.voiceSegCache.get(msgId);
+    if (segs === undefined) {
+      return '';
+    }
+    for (let i: number = 0; i < segs.length; i++) {
+      if (segs[i].idx === idx) {
+        return segs[i].text;
+      }
+    }
+    return '';
   }
 
   /**
@@ -1276,6 +1316,7 @@ struct ChatPage {
                 message: message,
                 index: index,
                 playingMsgId: this.playingMsgId,
+                playingSegText: this.playingSegText,
                 onPlayVoice: (i: number) => {
                   this.onPlayVoiceTap(i);
                 },
@@ -1325,6 +1366,10 @@ struct ChatPage {
           voiceMode: $voiceMode,
           voiceSending: this.voiceSending,
           autoSpeak: this.autoSpeak,
+          pendingVoice: this.pendingVoice,
+          onRetryVoice: (): void => {
+            this.retryPendingVoice();
+          },
           onToggleAutoSpeak: (): void => {
             this.toggleAutoSpeak();
           },
