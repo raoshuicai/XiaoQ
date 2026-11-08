@@ -151,7 +151,9 @@ export struct InputBar {
               .textAlign(TextAlign.Center)
               .width(32)
               .height(32)
-              .backgroundColor($r('app.color.btn_circle_bg'))
+              // ⚠️ 语音模式下换成灰底（同「按住 说话」的 bg_input）：
+              //    白气泡压在灰底上会"糊成一片"（用户 2026-11-08 反馈）
+              .backgroundColor(this.voiceMode ? $r('app.color.bg_input') : $r('app.color.btn_circle_bg'))
               .borderRadius(16)
               .onClick(() => {
                 this.plusOpen = !this.plusOpen;
@@ -165,7 +167,9 @@ export struct InputBar {
               .textAlign(TextAlign.Center)
               .width(32)
               .height(32)
-              .backgroundColor(this.yoloOn ? $r('app.color.brand') : $r('app.color.btn_circle_bg'))
+              .backgroundColor(this.yoloOn
+                ? $r('app.color.brand')
+                : (this.voiceMode ? $r('app.color.bg_input') : $r('app.color.btn_circle_bg')))
               .borderRadius(16)
               .margin({ left: 8 })
               .onClick(() => {
@@ -173,15 +177,18 @@ export struct InputBar {
               })
 
             // ─────── P3：「🔊」自动朗读总闸（在 Y 右侧）───────
-            // 开：主题色底 + 白色图标；关：白底灰图标（与 Y 的配色规则一致）
+            // 开：主题色底 + 白图标；关：白底/灰底 + 黑图标。
+            // ⚠️ 关的时候**不要用 opacity**（用户反馈：整块半透明会让底色发灰、
+            //    图标看着像压在别的层下面）—— 与 Y 完全同规则，只靠底色区分状态。
             Text('🔊')
               .fontSize(15)
               .textAlign(TextAlign.Center)
               .width(32)
               .height(32)
-              .backgroundColor(this.autoSpeak ? $r('app.color.brand') : $r('app.color.btn_circle_bg'))
+              .backgroundColor(this.autoSpeak
+                ? $r('app.color.brand')
+                : (this.voiceMode ? $r('app.color.bg_input') : $r('app.color.btn_circle_bg')))
               .borderRadius(16)
-              .opacity(this.autoSpeak ? 1 : 0.55)
               .margin({ left: 8 })
               .onClick(() => {
                 this.onToggleAutoSpeak();
@@ -212,7 +219,9 @@ export struct InputBar {
               .textAlign(TextAlign.Center)
               .width(32)
               .height(32)
-              .backgroundColor(this.canSend() ? $r('app.color.brand') : $r('app.color.btn_circle_bg'))
+              .backgroundColor(this.canSend()
+                ? $r('app.color.brand')
+                : (this.voiceMode ? $r('app.color.bg_input') : $r('app.color.btn_circle_bg')))
               .borderRadius(16)
               .onClick(() => {
                 if (this.canSend()) {
