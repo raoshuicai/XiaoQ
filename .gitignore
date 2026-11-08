@@ -41,5 +41,5 @@ build-deploy.ps1
 oh_modules/
 
 # 本地调试备份文件（不入库）
-*.bak
+*.bak*
 *.bak-*

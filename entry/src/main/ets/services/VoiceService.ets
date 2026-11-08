@@ -35,6 +35,16 @@ class AsrResult {
   durationMs: number = 0;
 }
 
+/** P2：TTS 段 */
+export class TtsSeg {
+  idx: number = 0;
+  text: string = '';
+  url: string = '';
+  durationMs: number = 0;
+  /** ready | pending | failed */
+  status: string = 'pending';
+}
+
 export class VoiceService {
   /**
    * 完整处理一条录音：上传 → 转写。失败返回 null（调用方提示可重试）。
@@ -152,6 +162,61 @@ export class VoiceService {
         be.code, be.message);
       return null;
     }
+  }
+  // ─────────────────── P2：TTS 分段准备 / 轮询 ───────────────────
+
+  /**
+   * 请求服务端分段合成一条回复的语音。
+   * 服务端已异步化：立刻返回段列表（status=pending/ready），后台逐段合成。
+   */
+  public async prepareTts(text: string, turnKey: string): Promise<TtsSeg[]> {
+    const body: Record<string, Object> = {
+      'text': text,
+      'voice': 'claire',
+      'turn_key': turnKey
+    };
+    try {
+      const raw: Record<string, Object> = await rest.post(
+        '/api/tts/prepare', body) as Record<string, Object>;
+      return this.parseSegs(raw);
+    } catch (e) {
+      const be = e as BusinessError;
+      hilog.error(0x0001, TAG, 'prepareTts failed code=%{public}d msg=%{public}s',
+        be.code, be.message);
+      return [];
+    }
+  }
+
+  /** 轮询某轮的段状态（播放器 BUFFERING 时用） */
+  public async fetchSegments(turnKey: string): Promise<TtsSeg[]> {
+    try {
+      const raw: Record<string, Object> = await rest.get(
+        '/api/tts/segments?turn=' + encodeURIComponent(turnKey)) as Record<string, Object>;
+      return this.parseSegs(raw);
+    } catch (e) {
+      hilog.error(0x0001, TAG, 'fetchSegments failed');
+      return [];
+    }
+  }
+
+  private parseSegs(raw: Record<string, Object>): TtsSeg[] {
+    const out: TtsSeg[] = [];
+    const arr: Object | undefined = raw['segments'];
+    if (arr === undefined || arr === null) {
+      return out;
+    }
+    const list: Array<Record<string, Object>> = arr as Array<Record<string, Object>>;
+    for (let i: number = 0; i < list.length; i++) {
+      const o: Record<string, Object> = list[i];
+      const seg: TtsSeg = new TtsSeg();
+      seg.idx = o['idx'] !== undefined ? Number(o['idx']) : i;
+      seg.text = o['text'] !== undefined ? String(o['text']) : '';
+      seg.url = o['url'] !== undefined ? String(o['url']) : '';
+      seg.durationMs = o['duration_ms'] !== undefined ? Number(o['duration_ms']) : 0;
+      seg.status = o['status'] !== undefined ? String(o['status']) : 'pending';
+      out.push(seg);
+    }
+    return out;
   }
 }
 

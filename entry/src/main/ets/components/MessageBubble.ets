@@ -93,6 +93,14 @@ export struct MessageBubble {
   index: number = 0;
   /** 长按删除回调（父组件负责弹确认框） */
   onDelete: (index: number) => void = () => {};
+  /** P2：点「朗读」（传本条消息的索引） */
+  onPlayVoice: (index: number) => void = () => {};
+  /** P2：正在播放的那条消息的 msg_id（空串 = 没在播） */
+  @Prop playingMsgId: string = '';
+
+  private isPlaying(): boolean {
+    return this.playingMsgId.length > 0 && this.message.msg_id === this.playingMsgId;
+  }
 
   build() {
     // S45-B2：最外层 Column —— 承载「名称/时间行」+「气泡行」两部分。
@@ -193,6 +201,23 @@ export struct MessageBubble {
           .fontColor(this.message.role === 'user' ? $r('app.color.bubble_user_text') : $r('app.color.bubble_bot_text'))
           .lineHeight(22)
           .copyOption(CopyOptions.LocalDevice)
+
+        // P2：朗读按钮（只挂在小Q 的回复上；用户自己的语音条已有 🎤 时长）
+        if (this.message.role === 'assistant' && this.message.content.trim().length > 0) {
+          Row() {
+            Text(this.isPlaying() ? '⏹ 停止' : '🔊 朗读')
+              .fontSize(11)
+              .fontWeight(this.isPlaying() ? FontWeight.Medium : FontWeight.Normal)
+              .fontColor(this.isPlaying() ? $r('app.color.brand') : $r('app.color.text_tertiary'))
+          }
+          .padding({ left: 9, right: 9, top: 3, bottom: 3 })
+          .backgroundColor($r('app.color.bg_input'))
+          .borderRadius(9)
+          .margin({ top: 8 })
+          .onClick(() => {
+            this.onPlayVoice(this.index);
+          })
+        }
       }
       .padding({ left: 14, right: 14, top: 10, bottom: 10 })
       .backgroundColor(this.message.role === 'user' ? $r('app.color.bubble_user_bg') : $r('app.color.bubble_bot_bg'))

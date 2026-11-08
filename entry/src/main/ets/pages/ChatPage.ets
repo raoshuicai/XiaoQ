@@ -41,10 +41,12 @@ import { rest } from '../core/HermesRest.ets';
 // P1：语音消息 —— 录音（VoiceRecorder）+ 上传转写（VoiceService）+ 调试用「选本地音频」
 import { picker, fileIo as fs } from '@kit.CoreFileKit';
 import { voiceRecorder, RecResult } from '../services/VoiceRecorder.ets';
-import { voiceService } from '../services/VoiceService.ets';
+import { voiceService, TtsSeg } from '../services/VoiceService.ets';
+// P2：TTS 播放器（分段队列 + BUFFERING 态 + 会话代际竞态守卫）
+import { voicePlayer, VoicePlayerHooks, VoiceSeg } from '../services/VoicePlayer.ets';
 
 // APP版本号（与 AppScope/app.json5 的 versionName 保持一致）
-const APP_VERSION: string = '3.9.17';
+const APP_VERSION: string = '3.9.18';
 
 // V4-A8：跨天键（键名带前缀防 AppStorage 冲突）
 const TODAY_KEY: string = 'xiaoq_chat_today_key';
@@ -58,6 +60,8 @@ struct ChatPage {
   @State voiceMode: boolean = false;
   /** P1：正在上传+转写（期间禁止再录、按钮显示「识别中…」） */
   @State voiceSending: boolean = false;
+  /** P2：正在播放的那条回复的 msg_id（空串 = 没在播） */
+  @State playingMsgId: string = '';
   @State isLoading: boolean = false;
   @State isStreaming: boolean = false;
   @State streamContent: string = '';
@@ -404,6 +408,76 @@ struct ChatPage {
     }
   }
 
+  // ─────────────────── P2：朗读（TTS 播放）───────────────────
+
+  /** 把播放器需要的三样东西绑上（回调 / 段轮询 / URL 绝对化） */
+  private bindVoicePlayer(): void {
+    const hooks: VoicePlayerHooks = {
+      onState: (state: string, segIdx: number): void => {
+        if (state === 'finished' || state === 'error') {
+          this.playingMsgId = '';
+        }
+      },
+      onError: (msg: string): void => {
+        this.showToast('播放失败：' + msg);
+        this.playingMsgId = '';
+      }
+    };
+    voicePlayer.bind(
+      hooks,
+      (turn: string): Promise<TtsSeg[]> => voiceService.fetchSegments(turn),
+      (relative: string): string => rest.getBaseUrl() + relative
+    );
+  }
+
+  /**
+   * 点气泡上的「🔊 朗读」：
+   *   正在播这条 → 停；否则先停别的，再 prepare（服务端异步分段合成）→ 开播。
+   * 首段 ready 就出声（实测 1.67s），不必等整段合成完。
+   */
+  private async onPlayVoiceTap(index: number): Promise<void> {
+    const list: ChatMessage[] = this.messageList;
+    if (index < 0 || index >= list.length) {
+      return;
+    }
+    const msg: ChatMessage = list[index];
+    if (msg.role !== 'assistant' || msg.content.trim().length === 0) {
+      return;
+    }
+    const msgId: string = msg.msg_id !== undefined && msg.msg_id.length > 0
+      ? msg.msg_id : ('idx-' + index.toString());
+
+    // 再点一次同一条 = 停止
+    if (this.playingMsgId === msgId) {
+      await voicePlayer.stop();
+      this.playingMsgId = '';
+      return;
+    }
+
+    await voicePlayer.stop();
+    this.showToast('正在生成语音…');
+    const segs: TtsSeg[] = await voiceService.prepareTts(msg.content, msgId);
+    if (segs.length === 0) {
+      this.playingMsgId = '';
+      this.showToast('语音合成失败，请稍后重试');
+      return;
+    }
+
+    const vsegs: VoiceSeg[] = [];
+    for (let i: number = 0; i < segs.length; i++) {
+      const s: TtsSeg = segs[i];
+      const v: VoiceSeg = new VoiceSeg();
+      v.idx = s.idx;
+      v.text = s.text;
+      v.url = s.url;
+      v.durationMs = s.durationMs;
+      v.status = s.status;
+      vsegs.push(v);
+    }
+    this.playingMsgId = msgId;
+    await voicePlayer.start(msgId, vsegs);
+  }
+
   /**
    * S2：建立 WS 连接并订阅事件。
    *
@@ -683,6 +757,8 @@ struct ChatPage {
   }
 
   aboutToAppear(): void {
+    // P2：播放器绑定（回调 + 段状态拉取 + URL 绝对化）
+    this.bindVoicePlayer();
     // V4-A8：跨天检测启动（5 分钟定时器 + AppStorage 广播）
     this.startDayCheck();
     // S3：创建流式状态机（回调实现见 buildStreamCallbacks）
@@ -1086,6 +1162,10 @@ struct ChatPage {
               MessageBubble({
                 message: message,
                 index: index,
+                playingMsgId: this.playingMsgId,
+                onPlayVoice: (i: number) => {
+                  this.onPlayVoiceTap(i);
+                },
                 onDelete: (i: number) => {
                   this.deleteMsgIndex = i;
                   this.confirmDeleteMessage();
